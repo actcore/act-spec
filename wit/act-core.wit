@@ -1,0 +1,181 @@
+package act:core@0.1.1;
+
+interface types {
+
+  /// A localized string is a list of (language-tag, text) pairs.
+  /// Language tags follow BCP 47 (e.g. "en", "ru", "zh-Hans").
+  /// Every localized-string MUST include an entry for the component's default language
+  /// (declared in component-info.default-language).
+  type localized-string = list<tuple<string, string>>;
+
+
+  // ──────────────────────────────────────────────
+  //  Component-level types
+  // ──────────────────────────────────────────────
+
+  /// A capability required or optionally used by the component.
+  /// The `id` field is a namespaced URI (e.g. "wasi:sockets/tcp", "wasi:filesystem/types").
+  record capability {
+    id: string,
+    description: option<localized-string>,
+    extensions: list<tuple<string, string>>,
+  }
+
+  /// Capabilities declared by the component.
+  record component-capabilities {
+    required: list<capability>,
+    optional: list<capability>,
+    extensions: list<tuple<string, string>>,
+  }
+
+  /// Top-level metadata about the component. Returned once at load time.
+  record component-info {
+    name: string,
+    version: string,
+    /// BCP 47 language tag for the component's default language.
+    /// Every localized-string in this component MUST include an entry for this language.
+    default-language: string,
+    description: localized-string,
+    capabilities: component-capabilities,
+    extensions: list<tuple<string, string>>,
+  }
+
+
+  // ──────────────────────────────────────────────
+  //  Tool-level types
+  // ──────────────────────────────────────────────
+
+  /// Metadata for a single tool parameter.
+  record parameter-meta {
+    name: string,
+    description: localized-string,
+    /// JSON Schema describing the parameter type and constraints.
+    schema: string,
+    required: bool,
+    extensions: list<tuple<string, string>>,
+  }
+
+  /// Behavioral and descriptive annotations for a tool.
+  record tool-annotations {
+    description: localized-string,
+    /// When to use this tool.
+    usage-hints: option<localized-string>,
+    /// When NOT to use this tool.
+    anti-usage-hints: option<localized-string>,
+    /// Example calls as Deterministically Encoded CBOR (diagnostic notation in documentation).
+    examples: list<list<u8>>,
+
+    // Side-effect declarations
+    read-only: bool,
+    idempotent: bool,
+    destructive: bool,
+
+    tags: list<string>,
+    /// Suggested timeout in milliseconds. The host MAY override this.
+    timeout-ms: option<u32>,
+
+    extensions: list<tuple<string, string>>,
+  }
+
+  /// Full definition of a tool, returned by list-tools.
+  record tool-definition {
+    name: string,
+    parameters: list<parameter-meta>,
+    annotations: tool-annotations,
+  }
+
+
+  // ──────────────────────────────────────────────
+  //  Call / Result types
+  // ──────────────────────────────────────────────
+
+  /// A request to invoke a tool.
+  record tool-call {
+    /// Caller-assigned identifier for correlation.
+    id: string,
+    /// Tool name, as returned by list-tools.
+    name: string,
+    /// Deterministically Encoded CBOR arguments (RFC 8949 §4.2).
+    /// Validated by the host against parameter schemas before being passed to the component.
+    /// The component is not required to verify deterministic encoding but is only required
+    /// to support the deterministic subset of CBOR.
+    arguments: list<u8>,
+    extensions: list<tuple<string, string>>,
+  }
+
+  /// A single piece of content in a tool's result stream.
+  record content-part {
+    /// Payload bytes. Interpretation depends on `mime-type`.
+    data: list<u8>,
+    /// MIME type of the data. If absent, defaults to "application/cbor".
+    mime-type: option<string>,
+    extensions: list<tuple<string, string>>,
+  }
+
+  /// Enumeration of well-known error categories.
+  enum error-kind {
+    not-found,
+    invalid-args,
+    timeout,
+    capability-denied,
+    internal,
+  }
+
+  /// Structured error returned by tools.
+  record tool-error {
+    kind: error-kind,
+    message: localized-string,
+    extensions: list<tuple<string, string>>,
+  }
+
+  /// A single event in the tool result stream.
+  variant stream-event {
+    content(content-part),
+    error(tool-error),
+  }
+}
+
+interface component-metadata {
+  use types.{ component-info };
+
+  /// Returns component-level information.
+  /// The host calls this once at load time and caches the result.
+  get-info: func() -> component-info;
+}
+
+interface tool-provider {
+  use types.{
+    tool-definition,
+    tool-call,
+    stream-event,
+    tool-error,
+  };
+
+  /// Returns JSON Schema describing the configuration this component accepts.
+  /// Returns `none` if the component does not require configuration.
+  ///
+  /// Components that depend on external resources (e.g. an API spec URL,
+  /// credentials) return a schema here. The host or client provides a
+  /// matching config value (as Deterministically Encoded CBOR) to `list-tools` and `call-tool`.
+  get-config-schema: func() -> option<string>;
+
+  /// Returns the list of tools available for the given configuration.
+  /// `config` is Deterministically Encoded CBOR validated against the schema from `get-config-schema`.
+  /// Components that returned `none` from `get-config-schema` MUST accept `none` here.
+  list-tools: func(config: option<list<u8>>) -> list<tool-definition>;
+
+  /// Invokes a tool and returns a stream of results.
+  ///
+  /// `config` — same as in `list-tools`.
+  ///
+  /// Returns:
+  ///   Ok(stream)  -- tool execution started; stream delivers content-parts and
+  ///                  optionally a terminal error event.
+  ///   Err(error)  -- early failure before execution (e.g. unknown tool, invalid args).
+  call-tool: async func(config: option<list<u8>>, call: tool-call) -> result<stream<stream-event>, tool-error>;
+}
+
+world act-world {
+  export component-metadata;
+  export tool-provider;
+}
