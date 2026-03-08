@@ -1,6 +1,6 @@
 # ACT: Agent Component Tools
 
-**Protocol Specification — Version 0.1.1 (Draft)**
+**Protocol Specification — Version 0.1.2 (Draft)**
 
 ---
 
@@ -18,7 +18,7 @@ A single ACT component is a `.wasm` file that exports a well-known set of interf
 - **Stateless** — components are stateless functions. Configuration is passed per-call, enabling horizontal scaling and CDN/proxy compatibility.
 - **Streaming** — tool results are always delivered as a stream, unifying atomic and incremental result patterns.
 - **Efficient** — Deterministically Encoded CBOR for arguments, config, and content data. Native binary support without base64 overhead.
-- **Extensible** — every record carries an open `extensions` field; breaking changes are handled through WIT package versioning.
+- **Extensible** — every record carries a `metadata` field with namespaced key-value pairs; breaking changes are handled through WIT package versioning.
 
 ### 1.2 Relationship to Existing Standards
 
@@ -49,8 +49,9 @@ CBOR examples use CBOR diagnostic notation (RFC 8949 §8).
 | **Component** | A `.wasm` file conforming to the WebAssembly Component Model that exports the ACT world. |
 | **Host** | A runtime (e.g. wasmtime) that loads, links, and executes ACT components. |
 | **Tool** | A named callable function exposed by a component through the `tool-provider` interface. |
-| **Config** | An optional CBOR-encoded value passed to `list-tools` and `call-tool`, carrying per-call context (credentials, endpoint URLs, etc.). Analogous to HTTP headers. |
+| **Config** | An optional dCBOR-encoded value passed to `list-tools` and `call-tool`, carrying per-call context (credentials, endpoint URLs, etc.). Analogous to HTTP headers. |
 | **dCBOR** | Deterministically Encoded CBOR as defined in RFC 8949 §4.2. |
+| **Metadata** | A list of key-value pairs (`list<tuple<string, list<u8>>>`) carried by every record type in the protocol. Keys are namespaced strings (`std:` for well-known, vendor prefix for custom). Values are dCBOR-encoded. |
 | **Transport Adapter** | A layer that translates between an external protocol (MCP, HTTP, etc.) and ACT host calls. |
 | **Capability** | A host-side resource (network, filesystem, etc.) identified by a URI that a component may require. |
 | **Bridge Component** | A component that adapts an external protocol (OpenAPI, MCP, ACP) into the ACT `tool-provider` interface, configured via `config`. |
@@ -62,7 +63,7 @@ CBOR examples use CBOR diagnostic notation (RFC 8949 §8).
 ### 3.1 Package
 
 ```wit
-package act:core@0.1.1;
+package act:core@0.1.2;
 ```
 
 ### 3.2 Types Interface
@@ -76,6 +77,11 @@ interface types {
   /// (declared in component-info.default-language).
   type localized-string = list<tuple<string, string>>;
 
+  /// Key-value metadata. Keys are namespaced strings, values are dCBOR-encoded.
+  /// Well-known keys use the `std:` prefix (e.g. "std:read-only", "std:timeout-ms").
+  /// Third-party keys use their own namespace (e.g. "acme:priority").
+  type metadata = list<tuple<string, list<u8>>>;
+
 
   // ──────────────────────────────────────────────
   //  Component-level types
@@ -86,14 +92,14 @@ interface types {
   record capability {
     id: string,
     description: option<localized-string>,
-    extensions: list<tuple<string, string>>,
+    metadata: metadata,
   }
 
   /// Capabilities declared by the component.
   record component-capabilities {
     required: list<capability>,
     optional: list<capability>,
-    extensions: list<tuple<string, string>>,
+    metadata: metadata,
   }
 
   /// Top-level metadata about the component. Returned once at load time.
@@ -105,7 +111,7 @@ interface types {
     default-language: string,
     description: localized-string,
     capabilities: component-capabilities,
-    extensions: list<tuple<string, string>>,
+    metadata: metadata,
   }
 
 
@@ -120,36 +126,17 @@ interface types {
     /// JSON Schema describing the parameter type and constraints.
     schema: string,
     required: bool,
-    extensions: list<tuple<string, string>>,
-  }
-
-  /// Behavioral and descriptive annotations for a tool.
-  record tool-annotations {
-    description: localized-string,
-    /// When to use this tool.
-    usage-hints: option<localized-string>,
-    /// When NOT to use this tool.
-    anti-usage-hints: option<localized-string>,
-    /// Example calls as Deterministically Encoded CBOR (diagnostic notation in documentation).
-    examples: list<list<u8>>,
-
-    // Side-effect declarations
-    read-only: bool,
-    idempotent: bool,
-    destructive: bool,
-
-    tags: list<string>,
-    /// Suggested timeout in milliseconds. The host MAY override this.
-    timeout-ms: option<u32>,
-
-    extensions: list<tuple<string, string>>,
+    metadata: metadata,
   }
 
   /// Full definition of a tool, returned by list-tools.
   record tool-definition {
     name: string,
+    description: localized-string,
     parameters: list<parameter-meta>,
-    annotations: tool-annotations,
+    /// Well-known keys: std:read-only, std:idempotent, std:destructive,
+    /// std:usage-hints, std:anti-usage-hints, std:examples, std:tags, std:timeout-ms.
+    metadata: metadata,
   }
 
 
@@ -165,10 +152,8 @@ interface types {
     name: string,
     /// Deterministically Encoded CBOR arguments (RFC 8949 §4.2).
     /// Validated by the host against parameter schemas before being passed to the component.
-    /// The component is not required to verify deterministic encoding but is only required
-    /// to support the deterministic subset of CBOR.
     arguments: list<u8>,
-    extensions: list<tuple<string, string>>,
+    metadata: metadata,
   }
 
   /// A single piece of content in a tool's result stream.
@@ -177,29 +162,39 @@ interface types {
     data: list<u8>,
     /// MIME type of the data. If absent, defaults to "application/cbor".
     mime-type: option<string>,
-    extensions: list<tuple<string, string>>,
-  }
-
-  /// Enumeration of well-known error categories.
-  enum error-kind {
-    not-found,
-    invalid-args,
-    timeout,
-    capability-denied,
-    internal,
+    metadata: metadata,
   }
 
   /// Structured error returned by tools.
+  /// Well-known kind values: std:not-found, std:invalid-args, std:timeout,
+  /// std:capability-denied, std:internal. Custom kinds use namespaced strings.
   record tool-error {
-    kind: error-kind,
+    kind: string,
     message: localized-string,
-    extensions: list<tuple<string, string>>,
+    metadata: metadata,
   }
 
   /// A single event in the tool result stream.
   variant stream-event {
     content(content-part),
     error(tool-error),
+  }
+
+
+  // ──────────────────────────────────────────────
+  //  Response wrappers
+  // ──────────────────────────────────────────────
+
+  /// Response from call-tool. Metadata is available for both success and error paths.
+  record call-response {
+    metadata: metadata,
+    body: result<stream<stream-event>, tool-error>,
+  }
+
+  /// Response from list-tools.
+  record list-tools-response {
+    metadata: metadata,
+    tools: list<tool-definition>,
   }
 }
 ```
@@ -223,32 +218,22 @@ interface tool-provider {
   use types.{
     tool-definition,
     tool-call,
-    stream-event,
+    call-response,
+    list-tools-response,
     tool-error,
   };
 
   /// Returns JSON Schema describing the configuration this component accepts.
   /// Returns `none` if the component does not require configuration.
-  ///
-  /// Components that depend on external resources (e.g. an API spec URL,
-  /// credentials) return a schema here. The host or client provides a
-  /// matching config value (as dCBOR) to `list-tools` and `call-tool`.
   get-config-schema: func() -> option<string>;
 
   /// Returns the list of tools available for the given configuration.
   /// `config` is dCBOR validated against the schema from `get-config-schema`.
-  /// Components that returned `none` from `get-config-schema` MUST accept `none` here.
-  list-tools: func(config: option<list<u8>>) -> list<tool-definition>;
+  list-tools: func(config: option<list<u8>>) -> result<list-tools-response, tool-error>;
 
-  /// Invokes a tool and returns a stream of results.
-  ///
-  /// `config` — same as in `list-tools`.
-  ///
-  /// Returns:
-  ///   Ok(stream)  -- tool execution started; stream delivers content-parts and
-  ///                  optionally a terminal error event.
-  ///   Err(error)  -- early failure before execution (e.g. unknown tool, invalid args).
-  call-tool: async func(config: option<list<u8>>, call: tool-call) -> result<stream<stream-event>, tool-error>;
+  /// Invokes a tool and returns a response with metadata and a stream of results.
+  /// Metadata is available regardless of whether the call succeeds or fails.
+  call-tool: async func(config: option<list<u8>>, call: tool-call) -> call-response;
 }
 ```
 
@@ -278,19 +263,19 @@ If the component imports a WASI interface that the host did not link, the compon
 ### 4.2 Tool Discovery
 
 1. The host (or transport adapter) calls `list-tools(config)`.
-2. The component returns a list of `tool-definition` records.
-3. The host SHOULD cache the result for a given config value unless the component indicates dynamism through extensions.
+2. The component returns a `list-tools-response` containing response-level metadata and a list of `tool-definition` records.
+3. The host SHOULD cache the result for a given config value unless the component indicates dynamism through metadata.
 
 For components without configuration (`get-config-schema` returns `none`), the host calls `list-tools(none)` and MAY cache the result for the lifetime of the component instance.
 
 ### 4.3 Tool Invocation
 
 1. The caller constructs a `tool-call` with a unique `id`, tool `name`, and dCBOR `arguments`.
-2. The host MUST validate `arguments` (after decoding from CBOR) against the JSON Schema declared in `parameter-meta` for the named tool. If validation fails, the host MUST return a `tool-error` with kind `invalid-args` without calling the component.
-3. The host MUST validate `config` against the schema from `get-config-schema` if present. If the component requires config and `none` is provided, or if the config does not match the schema, the host MUST return a `tool-error` with kind `invalid-args`.
+2. The host MUST validate `arguments` (after decoding from CBOR) against the JSON Schema declared in `parameter-meta` for the named tool. If validation fails, the host MUST return a `tool-error` with kind `std:invalid-args` without calling the component.
+3. The host MUST validate `config` against the schema from `get-config-schema` if present. If the component requires config and `none` is provided, or if the config does not match the schema, the host MUST return a `tool-error` with kind `std:invalid-args`.
 4. The host MUST ensure `arguments` and `config` are deterministically encoded before passing them to the component.
 5. The host calls `call-tool(config, call)`.
-6. On success, the host reads `stream-event` values from the returned stream:
+6. The host receives a `call-response` with response-level `metadata` and a `body` result. On success, the host reads `stream-event` values from the stream in `body`:
    - `content(part)` — a piece of result content. There may be zero or more.
    - `error(e)` — a terminal error. The stream ends after this event.
 7. When the stream completes without an `error` event, the call is considered successful.
@@ -393,7 +378,7 @@ The host MUST validate tool call arguments and config before passing them to the
 
 This guarantees that:
 - Components never receive malformed input.
-- Validation errors are surfaced early with `error-kind::invalid-args`.
+- Validation errors are surfaced early with `tool-error` kind `std:invalid-args`.
 - Components do not spend WASM cycles on input validation.
 
 ### 6.5 Content Data
@@ -461,20 +446,21 @@ Additional capability identifiers MAY be defined by third parties using their ow
 
 ## 8. Extensibility
 
-### 8.1 Extension Fields
+### 8.1 Metadata Fields
 
-Every record type in this specification includes an `extensions` field of type `list<tuple<string, string>>`. This field carries key-value pairs for experimental or vendor-specific metadata.
+Every record type in this specification includes a `metadata` field of type `list<tuple<string, list<u8>>>`. This field carries namespaced key-value pairs for well-known annotations and vendor-specific data. Values are dCBOR-encoded.
 
-- Extension keys SHOULD be namespaced to avoid collisions (e.g. `"acme:priority"`).
-- Hosts and components MUST ignore unrecognized extension keys.
-- Extensions MUST NOT change the semantics of any standard field.
+- Well-known keys use the `std:` prefix (e.g. `"std:read-only"`, `"std:timeout-ms"`).
+- Third-party keys use their own namespace (e.g. `"acme:priority"`).
+- Hosts and components MUST ignore unrecognized metadata keys.
+- Metadata MUST NOT change the semantics of any standard field.
 
 ### 8.2 Versioning
 
 Breaking changes to the WIT interfaces are handled through WIT package versioning:
 
 ```
-act:core@0.1.0  ->  act:core@0.1.1  ->  act:core@1.0.0
+act:core@0.1.0  ->  act:core@0.1.1  ->  act:core@0.1.2  ->  act:core@1.0.0
 ```
 
 A host MAY support multiple interface versions simultaneously. A component declares which version it implements through its WIT world.
@@ -489,28 +475,30 @@ Errors are surfaced at two levels:
 
 **Level 1 — Early errors (before streaming begins):**
 
-`call-tool` returns `result<..., tool-error>`. If the outer result is `Err`, the stream was never opened. This covers:
-- Tool not found (`not-found`)
-- Argument validation failure (`invalid-args`)
-- Config validation failure (`invalid-args`)
-- Capability denied (`capability-denied`)
+`call-response.body` is `result<stream<stream-event>, tool-error>`. If it is `Err`, the stream was never opened. The response-level `metadata` is still available. This covers:
+- Tool not found (`std:not-found`)
+- Argument validation failure (`std:invalid-args`)
+- Config validation failure (`std:invalid-args`)
+- Capability denied (`std:capability-denied`)
 
 **Level 2 — Stream errors (during execution):**
 
 A `stream-event::error(tool-error)` event may appear at any point in the stream. It is terminal — the stream ends after this event. This covers:
-- Timeouts (`timeout`)
-- Internal failures (`internal`)
+- Timeouts (`std:timeout`)
+- Internal failures (`std:internal`)
 - Any error that occurs after execution has begun
 
 ### 9.2 Error Kind Semantics
 
+The `tool-error.kind` field is a string. Well-known values use the `std:` prefix. Custom error kinds use their own namespace (e.g. `"acme:rate-limited"`).
+
 | Kind | Source | Description |
 |------|--------|-------------|
-| `not-found` | Host or Component | The named tool does not exist. |
-| `invalid-args` | Host | Arguments or config failed schema validation. |
-| `timeout` | Host | The call exceeded the declared or host-configured timeout. |
-| `capability-denied` | Host | The component attempted to use a capability that was not granted. |
-| `internal` | Component | An unrecoverable error within the component. |
+| `std:not-found` | Host or Component | The named tool does not exist. |
+| `std:invalid-args` | Host | Arguments or config failed schema validation. |
+| `std:timeout` | Host | The call exceeded the declared or host-configured timeout. |
+| `std:capability-denied` | Host | The component attempted to use a capability that was not granted. |
+| `std:internal` | Component | An unrecoverable error within the component. |
 
 ---
 
@@ -537,7 +525,7 @@ A conformant ACT host:
 - MUST validate config against the config schema if present (Section 6.4).
 - MUST support the `localized-string` fallback resolution order (Section 5.3).
 - MUST propagate cancellation by dropping the stream handle (Section 4.4).
-- MUST ignore unrecognized extension keys (Section 8.1).
+- MUST ignore unrecognized metadata keys (Section 8.1).
 
 ---
 
@@ -546,94 +534,142 @@ A conformant ACT host:
 The complete WIT package as a single file:
 
 ```wit
-package act:core@0.1.1;
+package act:core@0.1.2;
 
 interface types {
+
+  /// A localized string is a list of (language-tag, text) pairs.
+  /// Language tags follow BCP 47 (e.g. "en", "ru", "zh-Hans").
+  /// Every localized-string MUST include an entry for the component's default language
+  /// (declared in component-info.default-language).
   type localized-string = list<tuple<string, string>>;
 
+  /// Key-value metadata. Keys are namespaced strings, values are dCBOR-encoded.
+  /// Well-known keys use the `std:` prefix (e.g. "std:read-only", "std:timeout-ms").
+  /// Third-party keys use their own namespace (e.g. "acme:priority").
+  type metadata = list<tuple<string, list<u8>>>;
+
+
+  // ──────────────────────────────────────────────
+  //  Component-level types
+  // ──────────────────────────────────────────────
+
+  /// A capability required or optionally used by the component.
+  /// The `id` field is a namespaced URI (e.g. "wasi:sockets/tcp", "wasi:filesystem/types").
   record capability {
     id: string,
     description: option<localized-string>,
-    extensions: list<tuple<string, string>>,
+    metadata: metadata,
   }
 
+  /// Capabilities declared by the component.
   record component-capabilities {
     required: list<capability>,
     optional: list<capability>,
-    extensions: list<tuple<string, string>>,
+    metadata: metadata,
   }
 
+  /// Top-level metadata about the component. Returned once at load time.
   record component-info {
     name: string,
     version: string,
+    /// BCP 47 language tag for the component's default language.
+    /// Every localized-string in this component MUST include an entry for this language.
     default-language: string,
     description: localized-string,
     capabilities: component-capabilities,
-    extensions: list<tuple<string, string>>,
+    metadata: metadata,
   }
 
+
+  // ──────────────────────────────────────────────
+  //  Tool-level types
+  // ──────────────────────────────────────────────
+
+  /// Metadata for a single tool parameter.
   record parameter-meta {
     name: string,
     description: localized-string,
+    /// JSON Schema describing the parameter type and constraints.
     schema: string,
     required: bool,
-    extensions: list<tuple<string, string>>,
+    metadata: metadata,
   }
 
-  record tool-annotations {
-    description: localized-string,
-    usage-hints: option<localized-string>,
-    anti-usage-hints: option<localized-string>,
-    examples: list<list<u8>>,
-    read-only: bool,
-    idempotent: bool,
-    destructive: bool,
-    tags: list<string>,
-    timeout-ms: option<u32>,
-    extensions: list<tuple<string, string>>,
-  }
-
+  /// Full definition of a tool, returned by list-tools.
   record tool-definition {
     name: string,
+    description: localized-string,
     parameters: list<parameter-meta>,
-    annotations: tool-annotations,
+    /// Well-known keys: std:read-only, std:idempotent, std:destructive,
+    /// std:usage-hints, std:anti-usage-hints, std:examples, std:tags, std:timeout-ms.
+    metadata: metadata,
   }
 
+
+  // ──────────────────────────────────────────────
+  //  Call / Result types
+  // ──────────────────────────────────────────────
+
+  /// A request to invoke a tool.
   record tool-call {
+    /// Caller-assigned identifier for correlation.
     id: string,
+    /// Tool name, as returned by list-tools.
     name: string,
+    /// Deterministically Encoded CBOR arguments (RFC 8949 §4.2).
+    /// Validated by the host against parameter schemas before being passed to the component.
     arguments: list<u8>,
-    extensions: list<tuple<string, string>>,
+    metadata: metadata,
   }
 
+  /// A single piece of content in a tool's result stream.
   record content-part {
+    /// Payload bytes. Interpretation depends on `mime-type`.
     data: list<u8>,
+    /// MIME type of the data. If absent, defaults to "application/cbor".
     mime-type: option<string>,
-    extensions: list<tuple<string, string>>,
+    metadata: metadata,
   }
 
-  enum error-kind {
-    not-found,
-    invalid-args,
-    timeout,
-    capability-denied,
-    internal,
-  }
-
+  /// Structured error returned by tools.
+  /// Well-known kind values: std:not-found, std:invalid-args, std:timeout,
+  /// std:capability-denied, std:internal. Custom kinds use namespaced strings.
   record tool-error {
-    kind: error-kind,
+    kind: string,
     message: localized-string,
-    extensions: list<tuple<string, string>>,
+    metadata: metadata,
   }
 
+  /// A single event in the tool result stream.
   variant stream-event {
     content(content-part),
     error(tool-error),
+  }
+
+
+  // ──────────────────────────────────────────────
+  //  Response wrappers
+  // ──────────────────────────────────────────────
+
+  /// Response from call-tool. Metadata is available for both success and error paths.
+  record call-response {
+    metadata: metadata,
+    body: result<stream<stream-event>, tool-error>,
+  }
+
+  /// Response from list-tools.
+  record list-tools-response {
+    metadata: metadata,
+    tools: list<tool-definition>,
   }
 }
 
 interface component-metadata {
   use types.{ component-info };
+
+  /// Returns component-level information.
+  /// The host calls this once at load time and caches the result.
   get-info: func() -> component-info;
 }
 
@@ -641,13 +677,22 @@ interface tool-provider {
   use types.{
     tool-definition,
     tool-call,
-    stream-event,
+    call-response,
+    list-tools-response,
     tool-error,
   };
 
+  /// Returns JSON Schema describing the configuration this component accepts.
+  /// Returns `none` if the component does not require configuration.
   get-config-schema: func() -> option<string>;
-  list-tools: func(config: option<list<u8>>) -> list<tool-definition>;
-  call-tool: async func(config: option<list<u8>>, call: tool-call) -> result<stream<stream-event>, tool-error>;
+
+  /// Returns the list of tools available for the given configuration.
+  /// `config` is dCBOR validated against the schema from `get-config-schema`.
+  list-tools: func(config: option<list<u8>>) -> result<list-tools-response, tool-error>;
+
+  /// Invokes a tool and returns a response with metadata and a stream of results.
+  /// Metadata is available regardless of whether the call succeeds or fails.
+  call-tool: async func(config: option<list<u8>>, call: tool-call) -> call-response;
 }
 
 world act-world {
@@ -675,9 +720,9 @@ A calculator component — `get-config-schema()` returns `none`.
   "capabilities": {
     "required": [],
     "optional": [],
-    "extensions": []
+    "metadata": []
   },
-  "extensions": []
+  "metadata": []
 }
 ```
 
