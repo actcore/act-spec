@@ -264,8 +264,9 @@ If the component imports a WASI interface that the host did not link, the compon
 ### 4.2 Tool Discovery
 
 1. The host (or transport adapter) calls `list-tools(config)`.
-2. The component returns a `list-tools-response` containing response-level metadata and a list of `tool-definition` records.
-3. The host SHOULD cache the result for a given config value unless the component indicates dynamism through metadata.
+2. If `list-tools` returns `Ok(list-tools-response)`, the host processes the response metadata and tool definitions.
+3. If `list-tools` returns `Err(tool-error)`, the host MUST surface the error to the caller through the appropriate transport mechanism. The host MUST NOT cache error results.
+4. The host SHOULD cache successful results for a given config value unless the component indicates dynamism through metadata.
 
 For components without configuration (`get-config-schema` returns `none`), the host calls `list-tools(none)` and MAY cache the result for the lifetime of the component instance.
 
@@ -471,7 +472,7 @@ The following well-known keys are defined for `tool-definition.metadata`. All va
 | `std:tags` | array of tstr | Categorization tags. |
 | `std:timeout-ms` | uint | Suggested timeout in milliseconds. The host MAY override this. |
 
-Response metadata (`call-response.metadata`, `list-tools-response.metadata`) has no well-known keys defined in this version. Hosts and components MAY define their own (e.g. `std:request-id`, `acme:cache-ttl-ms`).
+Response metadata (`call-response.metadata`, `list-tools-response.metadata`) has no well-known keys defined in this version. Hosts and components MAY define their own (e.g. `acme:request-id`, `acme:cache-ttl-ms`).
 
 Hosts MUST NOT reject metadata entries with unrecognized keys. Components MUST NOT require specific response metadata keys to be present.
 
@@ -520,6 +521,8 @@ The `tool-error.kind` field is a string. Well-known values use the `std:` prefix
 | `std:capability-denied` | Host | The component attempted to use a capability that was not granted. |
 | `std:internal` | Component | An unrecoverable error within the component. |
 
+Hosts MUST NOT reject `tool-error` values with unrecognized `kind` strings. Unknown error kinds SHOULD be treated as equivalent to `std:internal` for transport error code mapping purposes.
+
 ---
 
 ## 10. Conformance
@@ -548,6 +551,8 @@ A conformant ACT host:
 - MUST support the `localized-string` fallback resolution order (Section 5.3).
 - MUST propagate cancellation by dropping the stream handle (Section 4.4).
 - MUST ignore unrecognized metadata keys (Section 8.1).
+- MUST handle `tool-error` returned by `list-tools` and surface it to the caller through the appropriate transport mechanism (Section 4.2).
+- MUST NOT reject `tool-error` values with unrecognized `kind` strings (Section 9.2).
 
 ---
 
