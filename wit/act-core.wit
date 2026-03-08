@@ -1,4 +1,4 @@
-package act:core@0.1.1;
+package act:core@0.1.2;
 
 interface types {
 
@@ -7,6 +7,10 @@ interface types {
   /// Every localized-string MUST include an entry for the component's default language
   /// (declared in component-info.default-language).
   type localized-string = list<tuple<string, string>>;
+
+  /// Key-value metadata. Keys are namespaced strings, values are dCBOR-encoded.
+  /// Used for extensions, annotations, and response headers throughout the protocol.
+  type metadata = list<tuple<string, list<u8>>>;
 
 
   // ──────────────────────────────────────────────
@@ -18,14 +22,14 @@ interface types {
   record capability {
     id: string,
     description: option<localized-string>,
-    extensions: list<tuple<string, string>>,
+    metadata: metadata,
   }
 
   /// Capabilities declared by the component.
   record component-capabilities {
     required: list<capability>,
     optional: list<capability>,
-    extensions: list<tuple<string, string>>,
+    metadata: metadata,
   }
 
   /// Top-level metadata about the component. Returned once at load time.
@@ -37,7 +41,7 @@ interface types {
     default-language: string,
     description: localized-string,
     capabilities: component-capabilities,
-    extensions: list<tuple<string, string>>,
+    metadata: metadata,
   }
 
 
@@ -52,36 +56,17 @@ interface types {
     /// JSON Schema describing the parameter type and constraints.
     schema: string,
     required: bool,
-    extensions: list<tuple<string, string>>,
-  }
-
-  /// Behavioral and descriptive annotations for a tool.
-  record tool-annotations {
-    description: localized-string,
-    /// When to use this tool.
-    usage-hints: option<localized-string>,
-    /// When NOT to use this tool.
-    anti-usage-hints: option<localized-string>,
-    /// Example calls as Deterministically Encoded CBOR (diagnostic notation in documentation).
-    examples: list<list<u8>>,
-
-    // Side-effect declarations
-    read-only: bool,
-    idempotent: bool,
-    destructive: bool,
-
-    tags: list<string>,
-    /// Suggested timeout in milliseconds. The host MAY override this.
-    timeout-ms: option<u32>,
-
-    extensions: list<tuple<string, string>>,
+    metadata: metadata,
   }
 
   /// Full definition of a tool, returned by list-tools.
   record tool-definition {
     name: string,
+    description: localized-string,
     parameters: list<parameter-meta>,
-    annotations: tool-annotations,
+    /// Well-known keys: read-only, idempotent, destructive, usage-hints,
+    /// anti-usage-hints, examples, tags, timeout-ms.
+    metadata: metadata,
   }
 
 
@@ -97,10 +82,8 @@ interface types {
     name: string,
     /// Deterministically Encoded CBOR arguments (RFC 8949 §4.2).
     /// Validated by the host against parameter schemas before being passed to the component.
-    /// The component is not required to verify deterministic encoding but is only required
-    /// to support the deterministic subset of CBOR.
     arguments: list<u8>,
-    extensions: list<tuple<string, string>>,
+    metadata: metadata,
   }
 
   /// A single piece of content in a tool's result stream.
@@ -109,29 +92,39 @@ interface types {
     data: list<u8>,
     /// MIME type of the data. If absent, defaults to "application/cbor".
     mime-type: option<string>,
-    extensions: list<tuple<string, string>>,
-  }
-
-  /// Enumeration of well-known error categories.
-  enum error-kind {
-    not-found,
-    invalid-args,
-    timeout,
-    capability-denied,
-    internal,
+    metadata: metadata,
   }
 
   /// Structured error returned by tools.
+  /// Well-known kind values: not-found, invalid-args, timeout,
+  /// capability-denied, internal. Custom kinds use namespaced strings.
   record tool-error {
-    kind: error-kind,
+    kind: string,
     message: localized-string,
-    extensions: list<tuple<string, string>>,
+    metadata: metadata,
   }
 
   /// A single event in the tool result stream.
   variant stream-event {
     content(content-part),
     error(tool-error),
+  }
+
+
+  // ──────────────────────────────────────────────
+  //  Response wrappers
+  // ──────────────────────────────────────────────
+
+  /// Response from call-tool. Metadata is available for both success and error paths.
+  record call-response {
+    metadata: metadata,
+    body: result<stream<stream-event>, tool-error>,
+  }
+
+  /// Response from list-tools.
+  record list-tools-response {
+    metadata: metadata,
+    tools: list<tool-definition>,
   }
 }
 
@@ -147,32 +140,22 @@ interface tool-provider {
   use types.{
     tool-definition,
     tool-call,
-    stream-event,
+    call-response,
+    list-tools-response,
     tool-error,
   };
 
   /// Returns JSON Schema describing the configuration this component accepts.
   /// Returns `none` if the component does not require configuration.
-  ///
-  /// Components that depend on external resources (e.g. an API spec URL,
-  /// credentials) return a schema here. The host or client provides a
-  /// matching config value (as Deterministically Encoded CBOR) to `list-tools` and `call-tool`.
   get-config-schema: func() -> option<string>;
 
   /// Returns the list of tools available for the given configuration.
-  /// `config` is Deterministically Encoded CBOR validated against the schema from `get-config-schema`.
-  /// Components that returned `none` from `get-config-schema` MUST accept `none` here.
-  list-tools: func(config: option<list<u8>>) -> list<tool-definition>;
+  /// `config` is dCBOR validated against the schema from `get-config-schema`.
+  list-tools: func(config: option<list<u8>>) -> result<list-tools-response, tool-error>;
 
-  /// Invokes a tool and returns a stream of results.
-  ///
-  /// `config` — same as in `list-tools`.
-  ///
-  /// Returns:
-  ///   Ok(stream)  -- tool execution started; stream delivers content-parts and
-  ///                  optionally a terminal error event.
-  ///   Err(error)  -- early failure before execution (e.g. unknown tool, invalid args).
-  call-tool: async func(config: option<list<u8>>, call: tool-call) -> result<stream<stream-event>, tool-error>;
+  /// Invokes a tool and returns a response with metadata and a stream of results.
+  /// Metadata is available regardless of whether the call succeeds or fails.
+  call-tool: async func(config: option<list<u8>>, call: tool-call) -> call-response;
 }
 
 world act-world {
