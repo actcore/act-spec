@@ -1,6 +1,6 @@
 # ACT Transport Bindings
 
-**Version 0.1.1 (Draft)**
+**Version 0.1.2 (Draft)**
 
 This document specifies how ACT protocol operations map to external transport protocols. It is a companion to the core ACT specification (`ACT-SPEC.md`).
 
@@ -20,7 +20,9 @@ Transport adapters MAY introduce session-like abstractions (e.g. caching config 
 
 ### 1.3 Config Delivery
 
-Components that require configuration (as declared by `get-config-schema`) receive it as a JSON string in every `list-tools` and `call-tool` invocation. Config is analogous to HTTP headers — it carries per-call context (credentials, endpoint URLs, preferences) orthogonal to tool arguments.
+Components that require configuration (as declared by `get-config-schema`) receive it as `option<list<u8>>` — dCBOR-encoded bytes (RFC 8949 §4.2) — in every `list-tools` and `call-tool` invocation. Config is analogous to HTTP headers — it carries per-call context (credentials, endpoint URLs, preferences) orthogonal to tool arguments.
+
+Transport adapters accept config in the transport-native format (JSON, HTTP headers, etc.) and convert it to dCBOR before passing it to the component. The host ensures config bytes are valid dCBOR.
 
 Transport adapters map config to the natural mechanism for each transport:
 
@@ -114,20 +116,20 @@ For components that do not require config (`get-config-schema` returns `none`), 
 
 ### 2.3 Tool Discovery — `tools/list`
 
-When the MCP client calls `tools/list`, the adapter calls `list-tools(config)` and translates each `tool-definition` to an MCP tool object.
+When the MCP client calls `tools/list`, the adapter calls `list-tools(config)`. On success, the adapter receives a `list-tools-response` containing `metadata` and `tools`, and translates each `tool-definition` to an MCP tool object. On error (`tool-error`), the adapter returns an MCP error response.
 
 **Mapping:**
 
 | ACT `tool-definition` | MCP `Tool` |
 |---|---|
 | `name` | `name` |
-| `annotations.description` | `description` (resolved to single language) |
+| `description` | `description` (resolved to single language) |
 | `parameters[*].schema` | Combined into `inputSchema` (JSON Schema object with `type: "object"`) |
 | `parameters[*].description` | `inputSchema.properties[name].description` (resolved) |
 | `parameters[*].required` | Collected into `inputSchema.required` array |
-| `annotations.read-only` | `annotations.readOnlyHint` |
-| `annotations.idempotent` | `annotations.idempotentHint` |
-| `annotations.destructive` | `annotations.destructiveHint` |
+| `metadata` key `std:read-only` | `annotations.readOnlyHint` |
+| `metadata` key `std:idempotent` | `annotations.idempotentHint` |
+| `metadata` key `std:destructive` | `annotations.destructiveHint` |
 
 **inputSchema construction:**
 
@@ -144,7 +146,9 @@ The adapter MUST construct a single JSON Schema object from the parameter list:
 }
 ```
 
-ACT fields with no MCP equivalent (`usage-hints`, `anti-usage-hints`, `examples`, `tags`, `timeout-ms`) are not included in the MCP response. The adapter MAY append `usage-hints` and `anti-usage-hints` to the `description` string as additional paragraphs.
+ACT metadata keys with no MCP equivalent (`std:usage-hints`, `std:anti-usage-hints`, `std:examples`, `std:tags`, `std:timeout-ms`) are not included in the MCP response. The adapter MAY append `std:usage-hints` and `std:anti-usage-hints` values to the `description` string as additional paragraphs.
+
+Response-level `metadata` from `list-tools-response` MAY be passed as MCP response extensions if applicable.
 
 ### 2.4 Tool Invocation — `tools/call`
 
@@ -153,18 +157,20 @@ When the MCP client calls `tools/call`:
 1. The adapter constructs a `tool-call`:
    - `id` — from MCP JSON-RPC `id`
    - `name` — from `params.name`
-   - `arguments` — `JSON.stringify(params.arguments)`
+   - `arguments` — `params.arguments` converted from JSON to dCBOR bytes
+   - `metadata` — empty (or populated from MCP extensions if applicable)
 2. The adapter calls `call-tool(config, call)` with the cached config.
+3. The adapter receives a `call-response` containing `metadata` and `body: result<stream, tool-error>`.
 
-**Result mapping (success):**
+**Result mapping (success — `body` is `ok(stream)`):**
 
-The adapter reads all `stream-event::content(part)` events from the stream and collects them into the MCP response:
+The adapter reads all `stream-event::content(part)` events from the stream and collects them into the MCP response. Response-level `metadata` from `call-response` MAY be passed as MCP result extensions if applicable.
 
 ```json
 {
   "content": [
     {
-      "type": "<content-part.kind>",
+      "type": "<mapped from mime-type>",
       "text": "<content-part.data>"
     }
   ]
@@ -180,27 +186,28 @@ The adapter reads all `stream-event::content(part)` events from the stream and c
 
 **Result mapping (error):**
 
-- Early error (`result::err`) → MCP error response with `isError: true`:
+- Early error (`body` is `err(tool-error)`) → MCP error response with `isError: true`:
   ```json
   {
     "content": [{ "type": "text", "text": "<error.message>" }],
     "isError": true
   }
   ```
+  Response-level `metadata` is still available on `call-response` even in the error path.
 
 - Stream error (`stream-event::error`) → same format. Any content-parts received before the error are included in the response, followed by the error content.
 
 **Error kind to MCP error code mapping:**
 
-| ACT `error-kind` | MCP JSON-RPC error code |
+| ACT `tool-error.kind` | MCP JSON-RPC error code |
 |---|---|
-| `not-found` | `-32601` (Method not found) |
-| `invalid-args` | `-32602` (Invalid params) |
-| `timeout` | `-32001` (Server error) |
-| `capability-denied` | `-32001` (Server error) |
-| `internal` | `-32603` (Internal error) |
+| `std:not-found` | `-32601` (Method not found) |
+| `std:invalid-args` | `-32602` (Invalid params) |
+| `std:timeout` | `-32001` (Server error) |
+| `std:capability-denied` | `-32001` (Server error) |
+| `std:internal` | `-32603` (Internal error) |
 
-The adapter SHOULD use MCP tool result with `isError: true` for tool-level errors (not-found, invalid-args) and JSON-RPC error responses only for protocol-level failures.
+The adapter SHOULD use MCP tool result with `isError: true` for tool-level errors (`std:not-found`, `std:invalid-args`) and JSON-RPC error responses only for protocol-level failures.
 
 ### 2.5 Streaming via Progress Notifications
 
@@ -282,6 +289,8 @@ The adapter MAY also support session-based config caching as an optimization (se
 
 ### 3.4 Tool Discovery
 
+The adapter calls `list-tools(config)` and returns a `list-tools-response`. Response-level `metadata` from `list-tools-response` MAY be mapped to HTTP response headers with an `X-ACT-Meta-` prefix.
+
 ```
 GET /tools
 X-ACT-Config: eyJzcGVjLXVybCI6Imh0dHBzOi8vLi4uIn0=
@@ -294,16 +303,21 @@ Content-Type: application/json
   "tools": [
     {
       "name": "search_web",
+      "description": "Поиск в интернете",
       "parameters": [ ... ],
-      "annotations": { ... }
+      "metadata": { ... }
     }
   ]
 }
 ```
 
+On error (`tool-error`), the adapter returns the appropriate HTTP error status (see Section 3.6).
+
 Localized strings in the response are resolved to the language requested via `Accept-Language`.
 
 ### 3.5 Tool Invocation
+
+The adapter receives a `call-response` containing `metadata` and `body`. Response-level `metadata` from `call-response` MAY be mapped to HTTP response headers with an `X-ACT-Meta-` prefix.
 
 **Non-streaming:**
 
@@ -323,12 +337,13 @@ Content-Type: application/json
 {
   "id": "call-1",
   "content": [
-    { "kind": "text", "data": "...", "mime_type": null }
+    { "data": "...", "mime_type": "text/plain" },
+    { "data": "AQIDBA==", "mime_type": "image/png" }
   ]
 }
 ```
 
-The adapter collects all stream events and returns the complete result.
+Each `content-part` is serialized as a JSON object with `data` (text or base64 for binary), `mime_type` (string or null for default `application/cbor`), and optional `metadata`. The adapter collects all stream events and returns the complete result.
 
 **Streaming (Server-Sent Events):**
 
@@ -349,10 +364,10 @@ Accept: text/event-stream
 Content-Type: text/event-stream
 
 event: content
-data: {"kind": "text", "data": "First result...", "mime_type": null}
+data: {"data": "First result...", "mime_type": "text/plain"}
 
 event: content
-data: {"kind": "text", "data": "Second result...", "mime_type": null}
+data: {"data": "Second result...", "mime_type": "text/plain"}
 
 event: done
 data: {}
@@ -362,27 +377,27 @@ If an error occurs mid-stream:
 
 ```
 event: error
-data: {"kind": "internal", "message": "Connection to search provider lost"}
+data: {"kind": "std:internal", "message": "Connection to search provider lost"}
 ```
 
 The `error` and `done` events are terminal — the stream closes after either.
 
 ### 3.6 Error Responses
 
-| ACT `error-kind` | HTTP status |
+| ACT `tool-error.kind` | HTTP status |
 |---|---|
-| `not-found` | `404 Not Found` |
-| `invalid-args` | `422 Unprocessable Entity` |
-| `timeout` | `504 Gateway Timeout` |
-| `capability-denied` | `403 Forbidden` |
-| `internal` | `500 Internal Server Error` |
+| `std:not-found` | `404 Not Found` |
+| `std:invalid-args` | `422 Unprocessable Entity` |
+| `std:timeout` | `504 Gateway Timeout` |
+| `std:capability-denied` | `403 Forbidden` |
+| `std:internal` | `500 Internal Server Error` |
 
 Error response body:
 
 ```json
 {
   "error": {
-    "kind": "invalid-args",
+    "kind": "std:invalid-args",
     "message": "Parameter 'limit' must be a positive integer"
   }
 }
@@ -434,17 +449,22 @@ This is purely a transport optimization. The adapter internally passes the cache
 ### 4.1 Conformant MCP Adapter
 
 A conformant MCP transport adapter:
-- MUST resolve config from host configuration or MCP `initialize` extensions.
-- MUST translate `tools/list` and `tools/call` as defined in Sections 2.3–2.4.
+- MUST resolve config from host configuration or MCP `initialize` extensions and convert it to dCBOR before passing to the component.
+- MUST convert JSON arguments from MCP `tools/call` to dCBOR bytes for `tool-call.arguments`.
+- MUST translate `tools/list` and `tools/call` as defined in Sections 2.3–2.4, including `list-tools-response` and `call-response` handling.
 - MUST resolve localized strings to a single language before sending MCP responses.
+- MUST map `tool-definition.metadata` keys `std:read-only`, `std:idempotent`, `std:destructive` to MCP annotation hints.
+- MUST map `tool-error.kind` values with `std:` prefix to MCP error codes as defined in Section 2.4.
 - MUST propagate MCP cancellation to ACT stream handle drops.
 
 ### 4.2 Conformant HTTP Adapter
 
 A conformant HTTP transport adapter:
-- MUST support config delivery via `X-ACT-Config` header.
+- MUST support config delivery via `X-ACT-Config` header and convert it to dCBOR before passing to the component.
+- MUST convert JSON arguments from request body to dCBOR bytes for `tool-call.arguments`.
 - MUST support `application/json` content type.
 - MUST support `Accept-Language` for localization.
-- MUST map ACT error kinds to HTTP status codes as defined in Section 3.6.
-- MUST support non-streaming tool invocation.
+- MUST map `tool-error.kind` values with `std:` prefix to HTTP status codes as defined in Section 3.6.
+- MUST support non-streaming tool invocation with `call-response` handling.
 - SHOULD support SSE streaming via `Accept: text/event-stream`.
+- SHOULD map response-level `metadata` from `list-tools-response` and `call-response` to HTTP response headers.
