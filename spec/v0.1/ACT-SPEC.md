@@ -51,7 +51,7 @@ CBOR examples use CBOR diagnostic notation (RFC 8949 §8).
 | **Tool** | A named callable function exposed by a component through the `tool-provider` interface. |
 | **Config** | An optional dCBOR-encoded value passed to `list-tools` and `call-tool`, carrying per-call context (credentials, endpoint URLs, etc.). Analogous to HTTP headers. |
 | **dCBOR** | Deterministically Encoded CBOR as defined in RFC 8949 §4.2. |
-| **Metadata** | A list of key-value pairs (`list<tuple<string, list<u8>>>`) carried by every record type in the protocol. Keys are namespaced strings (`std:` for well-known, vendor prefix for custom). Values are dCBOR-encoded. |
+| **Metadata** | A list of key-value pairs (`list<tuple<string, list<u8>>>`) carried by every record type in the protocol. Keys are namespaced strings (`std:` for well-known, vendor prefix for custom). Values are CBOR-encoded. Components produce valid CBOR; the host canonicalizes to dCBOR when needed. |
 | **Transport Adapter** | A layer that translates between an external protocol (MCP, HTTP, etc.) and ACT host calls. |
 | **Capability** | A host-side resource (network, filesystem, etc.) identified by a URI that a component may require. |
 | **Bridge Component** | A component that adapts an external protocol (OpenAPI, MCP, ACP) into the ACT `tool-provider` interface, configured via `config`. |
@@ -77,7 +77,8 @@ interface types {
   /// (declared in component-info.default-language).
   type localized-string = list<tuple<string, string>>;
 
-  /// Key-value metadata. Keys are namespaced strings, values are dCBOR-encoded.
+  /// Key-value metadata. Keys are namespaced strings, values are CBOR-encoded.
+  /// Components produce valid CBOR; the host canonicalizes to dCBOR if needed.
   /// Well-known keys use the `std:` prefix (e.g. "std:read-only", "std:timeout-ms").
   /// Third-party keys use their own namespace (e.g. "acme:priority").
   type metadata = list<tuple<string, list<u8>>>;
@@ -357,7 +358,7 @@ The **host** MUST ensure that all CBOR passed to a component is deterministicall
 
 **Components** are NOT required to verify deterministic encoding of incoming CBOR. They may assume it is deterministic if the host is conformant. Components are only required to support the deterministic subset of CBOR — they MAY reject non-deterministic encodings.
 
-**Components** that produce CBOR (e.g. in `content-part.data`) SHOULD use deterministic encoding but are not required to.
+**Components** that produce CBOR (e.g. in `content-part.data`, `metadata` values) MUST produce valid CBOR but are NOT required to use deterministic encoding. The host is responsible for canonicalizing component-produced CBOR to dCBOR before passing it to external consumers.
 
 ### 6.3 Parameter Schemas
 
@@ -383,13 +384,13 @@ This guarantees that:
 
 ### 6.5 Content Data
 
-The `content-part.data` field is `list<u8>` — raw bytes. The `mime-type` field determines how to interpret them. If `mime-type` is absent, it defaults to `"application/cbor"` — structured data encoded as dCBOR.
+The `content-part.data` field is `list<u8>` — raw bytes. The `mime-type` field determines how to interpret them. If `mime-type` is absent, it defaults to `"application/cbor"` — structured data encoded as CBOR. Components produce valid CBOR; the host canonicalizes to dCBOR before passing to external consumers.
 
 Common MIME types:
 
 | MIME type | `data` encoding |
 |-----------|-----------------|
-| `application/cbor` | dCBOR-encoded structured data (default) |
+| `application/cbor` | CBOR-encoded structured data (default); host canonicalizes to dCBOR |
 | `text/plain` | UTF-8 encoded text |
 | `text/markdown` | UTF-8 encoded Markdown |
 | `image/png` | Raw PNG bytes |
@@ -448,7 +449,7 @@ Additional capability identifiers MAY be defined by third parties using their ow
 
 ### 8.1 Metadata Fields
 
-Every record type in this specification includes a `metadata` field of type `list<tuple<string, list<u8>>>`. This field carries namespaced key-value pairs for well-known annotations and vendor-specific data. Values are dCBOR-encoded.
+Every record type in this specification includes a `metadata` field of type `list<tuple<string, list<u8>>>`. This field carries namespaced key-value pairs for well-known annotations and vendor-specific data. Values are CBOR-encoded. Components produce valid CBOR; the host canonicalizes to dCBOR when passing data to external consumers.
 
 - Well-known keys use the `std:` prefix (e.g. `"std:read-only"`, `"std:timeout-ms"`).
 - Third-party keys use their own namespace (e.g. `"acme:priority"`).
@@ -515,12 +516,14 @@ A conformant ACT component:
 - MUST produce a well-formed `stream<stream-event>` from `call-tool()`.
 - MUST return a valid JSON Schema from `get-config-schema()` if configuration is required, or `none` if not.
 - MUST accept `none` as config in `list-tools` and `call-tool` if `get-config-schema` returns `none`.
-- Is NOT required to verify deterministic CBOR encoding but MUST support the deterministic subset.
+- MUST produce valid CBOR in all output (metadata values, content-part data) but is NOT required to produce deterministic CBOR. The host canonicalizes.
+- Is NOT required to verify deterministic CBOR encoding of incoming data but MUST support the deterministic subset.
 
 ### 10.2 Conformant Host
 
 A conformant ACT host:
 - MUST encode arguments and config as dCBOR before passing them to the component (Section 6.2).
+- MUST canonicalize CBOR produced by components (metadata values, content-part data) to dCBOR before passing to external consumers.
 - MUST validate tool call arguments against declared schemas before invoking the component (Section 6.4).
 - MUST validate config against the config schema if present (Section 6.4).
 - MUST support the `localized-string` fallback resolution order (Section 5.3).
@@ -544,7 +547,8 @@ interface types {
   /// (declared in component-info.default-language).
   type localized-string = list<tuple<string, string>>;
 
-  /// Key-value metadata. Keys are namespaced strings, values are dCBOR-encoded.
+  /// Key-value metadata. Keys are namespaced strings, values are CBOR-encoded.
+  /// Components produce valid CBOR; the host canonicalizes to dCBOR if needed.
   /// Well-known keys use the `std:` prefix (e.g. "std:read-only", "std:timeout-ms").
   /// Third-party keys use their own namespace (e.g. "acme:priority").
   type metadata = list<tuple<string, list<u8>>>;

@@ -8,7 +8,8 @@ interface types {
   /// (declared in component-info.default-language).
   type localized-string = list<tuple<string, string>>;
 
-  /// Key-value metadata. Keys are namespaced strings, values are dCBOR-encoded.
+  /// Key-value metadata. Keys are namespaced strings, values are CBOR-encoded.
+  /// Components produce valid CBOR; the host canonicalizes to dCBOR if needed.
   /// Well-known keys use the `std:` prefix (e.g. "std:read-only", "std:timeout-ms").
   /// Third-party keys use their own namespace (e.g. "acme:priority").
   type metadata = list<tuple<string, list<u8>>>;
