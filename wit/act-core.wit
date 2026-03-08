@@ -117,22 +117,19 @@ interface types {
   }
 }
 
-interface component-metadata {
-  use types.{ component-info };
-
-  /// Returns component-level information.
-  /// The host calls this once at load time and caches the result.
-  get-info: func() -> component-info;
-}
-
 interface tool-provider {
   use types.{
+    component-info,
     tool-definition,
     tool-call,
     call-response,
     list-tools-response,
     tool-error,
   };
+
+  /// Returns component-level information.
+  /// The host calls this once at load time and caches the result.
+  get-info: func() -> component-info;
 
   /// Returns a JSON Schema (or JSON Structure) string describing the
   /// configuration this component accepts.
@@ -149,6 +146,5 @@ interface tool-provider {
 }
 
 world act-world {
-  export component-metadata;
   export tool-provider;
 }

@@ -187,29 +187,22 @@ interface types {
 }
 ```
 
-### 3.3 Component Metadata Interface
-
-```wit
-interface component-metadata {
-  use types.{ component-info };
-
-  /// Returns component-level information.
-  /// The host calls this once at load time and caches the result.
-  get-info: func() -> component-info;
-}
-```
-
-### 3.4 Tool Provider Interface
+### 3.3 Tool Provider Interface
 
 ```wit
 interface tool-provider {
   use types.{
+    component-info,
     tool-definition,
     tool-call,
     call-response,
     list-tools-response,
     tool-error,
   };
+
+  /// Returns component-level information.
+  /// The host calls this once at load time and caches the result.
+  get-info: func() -> component-info;
 
   /// Returns a JSON Schema (or JSON Structure) string describing the
   /// configuration this component accepts.
@@ -226,11 +219,10 @@ interface tool-provider {
 }
 ```
 
-### 3.5 World
+### 3.4 World
 
 ```wit
 world act-world {
-  export component-metadata;
   export tool-provider;
 }
 ```
@@ -243,7 +235,7 @@ world act-world {
 
 1. The host loads the `.wasm` component binary.
 2. The host links WASI and other imports according to its capability policy.
-3. The host calls `component-metadata.get-info()` to obtain component metadata, including declared capabilities.
+3. The host calls `tool-provider.get-info()` to obtain component metadata, including declared capabilities.
 4. The host calls `tool-provider.get-config-schema()` to determine whether the component requires configuration.
 5. The component is now ready to accept calls.
 
@@ -518,7 +510,7 @@ Hosts MUST NOT reject `tool-error` values with unrecognized `kind` strings. Unkn
 ### 10.1 Conformant Component
 
 A conformant ACT component:
-- MUST export the `act-world` world as defined in Section 3.5.
+- MUST export the `act-world` world as defined in Section 3.4.
 - MUST return valid `component-info` from `get-info()`, including a valid BCP 47 `default-language`.
 - MUST include the `default-language` entry in every `localized-string` it produces.
 - MUST return valid `tool-definition` records from `list-tools()`.
@@ -668,22 +660,19 @@ interface types {
   }
 }
 
-interface component-metadata {
-  use types.{ component-info };
-
-  /// Returns component-level information.
-  /// The host calls this once at load time and caches the result.
-  get-info: func() -> component-info;
-}
-
 interface tool-provider {
   use types.{
+    component-info,
     tool-definition,
     tool-call,
     call-response,
     list-tools-response,
     tool-error,
   };
+
+  /// Returns component-level information.
+  /// The host calls this once at load time and caches the result.
+  get-info: func() -> component-info;
 
   /// Returns a JSON Schema (or JSON Structure) string describing the
   /// configuration this component accepts.
@@ -700,7 +689,6 @@ interface tool-provider {
 }
 
 world act-world {
-  export component-metadata;
   export tool-provider;
 }
 ```
