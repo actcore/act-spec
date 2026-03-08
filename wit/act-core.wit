@@ -23,14 +23,8 @@ interface types {
   /// The `id` field is a namespaced URI (e.g. "wasi:sockets/tcp", "wasi:filesystem/types").
   record capability {
     id: string,
+    required: bool,
     description: option<localized-string>,
-    metadata: metadata,
-  }
-
-  /// Capabilities declared by the component.
-  record component-capabilities {
-    required: list<capability>,
-    optional: list<capability>,
     metadata: metadata,
   }
 
@@ -42,7 +36,7 @@ interface types {
     /// Every localized-string in this component MUST include an entry for this language.
     default-language: string,
     description: localized-string,
-    capabilities: component-capabilities,
+    capabilities: list<capability>,
     metadata: metadata,
   }
 

@@ -92,14 +92,8 @@ interface types {
   /// The `id` field is a namespaced URI (e.g. "wasi:sockets/tcp", "wasi:filesystem/types").
   record capability {
     id: string,
+    required: bool,
     description: option<localized-string>,
-    metadata: metadata,
-  }
-
-  /// Capabilities declared by the component.
-  record component-capabilities {
-    required: list<capability>,
-    optional: list<capability>,
     metadata: metadata,
   }
 
@@ -111,7 +105,7 @@ interface types {
     /// Every localized-string in this component MUST include an entry for this language.
     default-language: string,
     description: localized-string,
-    capabilities: component-capabilities,
+    capabilities: list<capability>,
     metadata: metadata,
   }
 
@@ -259,7 +253,7 @@ world act-world {
 4. The host calls `tool-provider.get-config-schema()` to determine whether the component requires configuration.
 5. The component is now ready to accept calls.
 
-If the component imports a WASI interface that the host did not link, the component will trap at the point of use. The host MAY inspect `component-capabilities` from `get-info()` to make linking decisions proactively, but this is not required.
+If the component imports a WASI interface that the host did not link, the component will trap at the point of use. The host MAY inspect `capabilities` from `get-info()` to make linking decisions proactively, but this is not required.
 
 ### 4.2 Tool Discovery
 
@@ -413,11 +407,11 @@ Language-specific SDKs SHOULD generate JSON Schema from native type signatures a
 
 Capabilities represent host-side resources that a component may need. They are identified by namespaced URI strings.
 
-A component declares its capabilities through the `component-capabilities` record returned by `get-info()`. This declaration is informational — the host uses it to make linking decisions and to communicate capability requirements to clients (agents, UIs).
+A component declares its capabilities through the `capabilities` list in `component-info` returned by `get-info()`. This declaration is informational — the host uses it to make linking decisions and to communicate capability requirements to clients (agents, UIs).
 
 ### 7.2 Declaration
 
-The component MUST declare the capabilities it requires in `component-capabilities.required` and those it can function without in `component-capabilities.optional`.
+The component MUST declare each capability with `required: true` if the component cannot function without it, or `required: false` if it can function without it.
 
 Language SDKs SHOULD populate this declaration automatically from the component's `world` definition.
 
@@ -586,14 +580,8 @@ interface types {
   /// The `id` field is a namespaced URI (e.g. "wasi:sockets/tcp", "wasi:filesystem/types").
   record capability {
     id: string,
+    required: bool,
     description: option<localized-string>,
-    metadata: metadata,
-  }
-
-  /// Capabilities declared by the component.
-  record component-capabilities {
-    required: list<capability>,
-    optional: list<capability>,
     metadata: metadata,
   }
 
@@ -605,7 +593,7 @@ interface types {
     /// Every localized-string in this component MUST include an entry for this language.
     default-language: string,
     description: localized-string,
-    capabilities: component-capabilities,
+    capabilities: list<capability>,
     metadata: metadata,
   }
 
@@ -745,11 +733,7 @@ A calculator component — `get-config-schema()` returns `none`.
   "version": "1.0.0",
   "default_language": "en",
   "description": [["en", "Basic arithmetic tools"]],
-  "capabilities": {
-    "required": [],
-    "optional": [],
-    "metadata": []
-  },
+  "capabilities": [],
   "metadata": []
 }
 ```
