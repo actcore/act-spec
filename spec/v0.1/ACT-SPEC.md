@@ -792,4 +792,61 @@ An OpenAPI bridge — `get-config-schema()` returns a schema.
 {"spec-url": "https://api.example.com/openapi.json"}
 ```
 
-**list-tools(config) returns tools derived from the OpenAPI spec.** Tool definitions use JSON Schema in `parameter-meta.schema` as before — schemas are always JSON strings regardless of the dCBOR encoding of runtime values.
+**list-tools(config) returns tools derived from the OpenAPI spec.** Tool definitions use JSON Schema in `parameter-meta.schema` as before — schemas are always JSON strings regardless of the CBOR encoding of runtime values.
+
+### B.3 Tool Definition with Metadata
+
+A tool definition using well-known metadata keys (shown as JSON for readability; actual metadata values are CBOR-encoded):
+
+```json
+{
+  "name": "delete_user",
+  "description": [["en", "Delete a user account permanently"]],
+  "parameters": [
+    {
+      "name": "user_id",
+      "description": [["en", "The user ID to delete"]],
+      "schema": "{\"type\": \"string\", \"format\": \"uuid\"}",
+      "required": true,
+      "metadata": []
+    }
+  ],
+  "metadata": [
+    ["std:destructive", true],
+    ["std:idempotent", true],
+    ["std:anti-usage-hints", [["en", "Do not use for deactivation — use deactivate_user instead"]]],
+    ["std:timeout-ms", 30000]
+  ]
+}
+```
+
+### B.4 Call Response
+
+A successful `call-response` (shown as JSON for readability):
+
+```json
+{
+  "metadata": [
+    ["acme:request-id", "req-abc-123"]
+  ],
+  "body": {
+    "ok": "<stream of stream-events>"
+  }
+}
+```
+
+An early error `call-response` — metadata is still available:
+
+```json
+{
+  "metadata": [
+    ["acme:request-id", "req-abc-456"]
+  ],
+  "body": {
+    "err": {
+      "kind": "std:not-found",
+      "message": [["en", "Tool 'foo' does not exist"]],
+      "metadata": []
+    }
+  }
+}
