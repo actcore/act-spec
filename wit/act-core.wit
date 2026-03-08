@@ -45,21 +45,14 @@ interface types {
   //  Tool-level types
   // ──────────────────────────────────────────────
 
-  /// Metadata for a single tool parameter.
-  record parameter-meta {
-    name: string,
-    description: localized-string,
-    /// JSON Schema describing the parameter type and constraints.
-    schema: string,
-    required: bool,
-    metadata: metadata,
-  }
-
   /// Full definition of a tool, returned by list-tools.
   record tool-definition {
     name: string,
     description: localized-string,
-    parameters: list<parameter-meta>,
+    /// Parameter schema as a JSON Schema string (default).
+    /// Hosts MAY also accept JSON Structure (json-structure.org),
+    /// detected via the `$schema` field.
+    parameters-schema: string,
     /// Well-known keys: std:read-only, std:idempotent, std:destructive,
     /// std:usage-hints, std:anti-usage-hints, std:examples, std:tags, std:timeout-ms.
     metadata: metadata,
@@ -141,7 +134,8 @@ interface tool-provider {
     tool-error,
   };
 
-  /// Returns JSON Schema describing the configuration this component accepts.
+  /// Returns a JSON Schema (or JSON Structure) string describing the
+  /// configuration this component accepts.
   /// Returns `none` if the component does not require configuration.
   get-config-schema: func() -> option<string>;
 

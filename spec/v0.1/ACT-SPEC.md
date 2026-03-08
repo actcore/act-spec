@@ -26,7 +26,7 @@ ACT builds on:
 - **WebAssembly Component Model** — for component packaging, linking, and type system.
 - **WIT (WebAssembly Interface Types)** — as the sole IDL.
 - **WASI Preview 3 (wasip3)** — for async functions, `future`, and `stream` types.
-- **JSON Schema** — for dynamic parameter description consumed by agents.
+- **JSON Schema** — for parameter and config schema description. Hosts MAY also support JSON Structure (json-structure.org), detected via the `$schema` field.
 - **CBOR (RFC 8949)** — for binary encoding of arguments, config, and content data. Specifically, Deterministically Encoded CBOR (§4.2).
 - **BCP 47** — for language tags in localized strings.
 
@@ -114,21 +114,14 @@ interface types {
   //  Tool-level types
   // ──────────────────────────────────────────────
 
-  /// Metadata for a single tool parameter.
-  record parameter-meta {
-    name: string,
-    description: localized-string,
-    /// JSON Schema describing the parameter type and constraints.
-    schema: string,
-    required: bool,
-    metadata: metadata,
-  }
-
   /// Full definition of a tool, returned by list-tools.
   record tool-definition {
     name: string,
     description: localized-string,
-    parameters: list<parameter-meta>,
+    /// Parameter schema as a JSON Schema string (default).
+    /// Hosts MAY also accept JSON Structure (json-structure.org),
+    /// detected via the `$schema` field.
+    parameters-schema: string,
     /// Well-known keys: std:read-only, std:idempotent, std:destructive,
     /// std:usage-hints, std:anti-usage-hints, std:examples, std:tags, std:timeout-ms.
     metadata: metadata,
@@ -218,7 +211,8 @@ interface tool-provider {
     tool-error,
   };
 
-  /// Returns JSON Schema describing the configuration this component accepts.
+  /// Returns a JSON Schema (or JSON Structure) string describing the
+  /// configuration this component accepts.
   /// Returns `none` if the component does not require configuration.
   get-config-schema: func() -> option<string>;
 
@@ -267,7 +261,7 @@ For components without configuration (`get-config-schema` returns `none`), the h
 ### 4.3 Tool Invocation
 
 1. The caller constructs a `tool-call` with a unique `id`, tool `name`, and dCBOR `arguments`.
-2. The host MUST validate `arguments` (after decoding from CBOR) against the JSON Schema declared in `parameter-meta` for the named tool. If validation fails, the host MUST return a `tool-error` with kind `std:invalid-args` without calling the component.
+2. The host MUST validate `arguments` (after decoding from CBOR) against the schema declared in `tool-definition.parameters-schema` for the named tool. If validation fails, the host MUST return a `tool-error` with kind `std:invalid-args` without calling the component.
 3. The host MUST validate `config` against the schema from `get-config-schema` if present. If the component requires config and `none` is provided, or if the config does not match the schema, the host MUST return a `tool-error` with kind `std:invalid-args`.
 4. The host MUST ensure `arguments` and `config` are deterministically encoded before passing them to the component.
 5. The host calls `call-tool(config, call)`.
@@ -357,18 +351,18 @@ The **host** MUST ensure that all CBOR passed to a component is deterministicall
 
 ### 6.3 Parameter Schemas
 
-Each parameter in `tool-definition.parameters` carries a `schema` field containing a JSON Schema string. The schema describes the type, constraints, and structure of the parameter value.
+`tool-definition.parameters-schema` contains a JSON Schema string describing the tool's parameters as a JSON Schema object type. The schema defines parameter names, types, constraints, required fields, and descriptions.
 
-JSON Schema remains the schema language because JSON and CBOR share nearly identical data models (maps, arrays, strings, numbers, booleans, null). The host validates arguments against JSON Schema after decoding from CBOR to a generic value.
+JSON Schema is the default schema language because JSON and CBOR share nearly identical data models (maps, arrays, strings, numbers, booleans, null). Hosts MAY also support JSON Structure (json-structure.org), which offers stronger typing and built-in localization via the `altnames` companion spec. The schema format is detected via the `$schema` field.
 
-The top-level `arguments` field of `tool-call` is a dCBOR map where keys correspond to parameter names.
+The top-level `arguments` field of `tool-call` is a dCBOR map where keys correspond to parameter names defined in the schema.
 
 ### 6.4 Host-Side Validation
 
 The host MUST validate tool call arguments and config before passing them to the component:
 
 1. Decode CBOR to a generic value.
-2. Validate against the declared JSON Schema.
+2. Validate against the declared schema.
 3. Re-encode as dCBOR (if the input was not already deterministically encoded).
 4. Pass to the component.
 
@@ -397,7 +391,7 @@ Hosts that do not recognize a MIME type SHOULD pass the content through to the c
 
 ### 6.6 SDK Generation
 
-Language-specific SDKs SHOULD generate JSON Schema from native type signatures automatically. The developer writes typed functions; the SDK produces the `parameter-meta` records. SDKs SHOULD handle CBOR encoding/decoding transparently — the developer works with native types.
+Language-specific SDKs SHOULD generate parameter schemas from native type signatures automatically. The developer writes typed functions; the SDK produces the `parameters-schema` string. SDKs SHOULD handle CBOR encoding/decoding transparently — the developer works with native types.
 
 ---
 
@@ -602,21 +596,14 @@ interface types {
   //  Tool-level types
   // ──────────────────────────────────────────────
 
-  /// Metadata for a single tool parameter.
-  record parameter-meta {
-    name: string,
-    description: localized-string,
-    /// JSON Schema describing the parameter type and constraints.
-    schema: string,
-    required: bool,
-    metadata: metadata,
-  }
-
   /// Full definition of a tool, returned by list-tools.
   record tool-definition {
     name: string,
     description: localized-string,
-    parameters: list<parameter-meta>,
+    /// Parameter schema as a JSON Schema string (default).
+    /// Hosts MAY also accept JSON Structure (json-structure.org),
+    /// detected via the `$schema` field.
+    parameters-schema: string,
     /// Well-known keys: std:read-only, std:idempotent, std:destructive,
     /// std:usage-hints, std:anti-usage-hints, std:examples, std:tags, std:timeout-ms.
     metadata: metadata,
@@ -698,7 +685,8 @@ interface tool-provider {
     tool-error,
   };
 
-  /// Returns JSON Schema describing the configuration this component accepts.
+  /// Returns a JSON Schema (or JSON Structure) string describing the
+  /// configuration this component accepts.
   /// Returns `none` if the component does not require configuration.
   get-config-schema: func() -> option<string>;
 
@@ -781,7 +769,7 @@ An OpenAPI bridge — `get-config-schema()` returns a schema.
 {"spec-url": "https://api.example.com/openapi.json"}
 ```
 
-**list-tools(config) returns tools derived from the OpenAPI spec.** Tool definitions use JSON Schema in `parameter-meta.schema` as before — schemas are always JSON strings regardless of the CBOR encoding of runtime values.
+**list-tools(config) returns tools derived from the OpenAPI spec.** Tool definitions use JSON Schema in `parameters-schema` — schemas are always JSON strings regardless of the CBOR encoding of runtime values.
 
 ### B.3 Tool Definition with Metadata
 
@@ -791,15 +779,17 @@ A tool definition using well-known metadata keys (shown as JSON for readability;
 {
   "name": "delete_user",
   "description": [["en", "Delete a user account permanently"]],
-  "parameters": [
-    {
-      "name": "user_id",
-      "description": [["en", "The user ID to delete"]],
-      "schema": "{\"type\": \"string\", \"format\": \"uuid\"}",
-      "required": true,
-      "metadata": []
-    }
-  ],
+  "parameters-schema": {
+    "type": "object",
+    "properties": {
+      "user_id": {
+        "type": "string",
+        "format": "uuid",
+        "description": "The user ID to delete"
+      }
+    },
+    "required": ["user_id"]
+  },
   "metadata": [
     ["std:destructive", true],
     ["std:idempotent", true],

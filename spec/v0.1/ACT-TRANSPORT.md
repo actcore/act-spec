@@ -44,7 +44,7 @@ The general pattern:
 External protocol     ACT tool-provider
   discovery       →     list-tools
   invoke          →     call-tool
-  schema          →     parameter-meta
+  schema          →     parameters-schema
 ```
 
 Bridge components are configured via `config`: each call specifies which external endpoint to use. One bridge component instance can serve requests to different APIs simultaneously.
@@ -124,27 +124,14 @@ When the MCP client calls `tools/list`, the adapter calls `list-tools(config)`. 
 |---|---|
 | `name` | `name` |
 | `description` | `description` (resolved to single language) |
-| `parameters[*].schema` | Combined into `inputSchema` (JSON Schema object with `type: "object"`) |
-| `parameters[*].description` | `inputSchema.properties[name].description` (resolved) |
-| `parameters[*].required` | Collected into `inputSchema.required` array |
+| `parameters-schema` | `inputSchema` (passed through as JSON Schema) |
 | `metadata` key `std:read-only` | `annotations.readOnlyHint` |
 | `metadata` key `std:idempotent` | `annotations.idempotentHint` |
 | `metadata` key `std:destructive` | `annotations.destructiveHint` |
 
 **inputSchema construction:**
 
-The adapter MUST construct a single JSON Schema object from the parameter list:
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "<param.name>": <param.schema with "description" injected>,
-    ...
-  },
-  "required": ["<names of params where required=true>"]
-}
-```
+The `parameters-schema` is already a JSON Schema object with `type: "object"`, `properties`, and `required`. The adapter passes it through as the MCP `inputSchema`, resolving any localized descriptions (e.g. JSON Structure `altnames`) to the client's preferred language as plain `description` fields.
 
 ACT metadata keys with no MCP equivalent (`std:usage-hints`, `std:anti-usage-hints`, `std:examples`, `std:tags`, `std:timeout-ms`) are not included in the MCP response. The adapter MAY append `std:usage-hints` and `std:anti-usage-hints` values to the `description` string as additional paragraphs.
 
