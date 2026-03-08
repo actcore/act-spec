@@ -456,7 +456,26 @@ Every record type in this specification includes a `metadata` field of type `lis
 - Hosts and components MUST ignore unrecognized metadata keys.
 - Metadata MUST NOT change the semantics of any standard field.
 
-### 8.2 Versioning
+### 8.2 Well-Known Metadata Keys
+
+The following well-known keys are defined for `tool-definition.metadata`. All values are CBOR-encoded.
+
+| Key | CBOR type | Description |
+|-----|-----------|-------------|
+| `std:read-only` | bool | Tool does not modify state. |
+| `std:idempotent` | bool | Repeated calls with same arguments produce the same result. |
+| `std:destructive` | bool | Tool may irreversibly modify state. |
+| `std:usage-hints` | localized-string | When to use this tool. |
+| `std:anti-usage-hints` | localized-string | When NOT to use this tool. |
+| `std:examples` | array of bstr | Example tool calls as CBOR-encoded argument maps. |
+| `std:tags` | array of tstr | Categorization tags. |
+| `std:timeout-ms` | uint | Suggested timeout in milliseconds. The host MAY override this. |
+
+Response metadata (`call-response.metadata`, `list-tools-response.metadata`) has no well-known keys defined in this version. Hosts and components MAY define their own (e.g. `std:request-id`, `acme:cache-ttl-ms`).
+
+Hosts MUST NOT reject metadata entries with unrecognized keys. Components MUST NOT require specific response metadata keys to be present.
+
+### 8.3 Versioning
 
 Breaking changes to the WIT interfaces are handled through WIT package versioning:
 
