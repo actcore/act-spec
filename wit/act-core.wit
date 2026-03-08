@@ -9,7 +9,8 @@ interface types {
   type localized-string = list<tuple<string, string>>;
 
   /// Key-value metadata. Keys are namespaced strings, values are dCBOR-encoded.
-  /// Used for extensions, annotations, and response headers throughout the protocol.
+  /// Well-known keys use the `std:` prefix (e.g. "std:read-only", "std:timeout-ms").
+  /// Third-party keys use their own namespace (e.g. "acme:priority").
   type metadata = list<tuple<string, list<u8>>>;
 
 
@@ -64,8 +65,8 @@ interface types {
     name: string,
     description: localized-string,
     parameters: list<parameter-meta>,
-    /// Well-known keys: read-only, idempotent, destructive, usage-hints,
-    /// anti-usage-hints, examples, tags, timeout-ms.
+    /// Well-known keys: std:read-only, std:idempotent, std:destructive,
+    /// std:usage-hints, std:anti-usage-hints, std:examples, std:tags, std:timeout-ms.
     metadata: metadata,
   }
 
@@ -96,8 +97,8 @@ interface types {
   }
 
   /// Structured error returned by tools.
-  /// Well-known kind values: not-found, invalid-args, timeout,
-  /// capability-denied, internal. Custom kinds use namespaced strings.
+  /// Well-known kind values: std:not-found, std:invalid-args, std:timeout,
+  /// std:capability-denied, std:internal. Custom kinds use namespaced strings.
   record tool-error {
     kind: string,
     message: localized-string,
