@@ -584,4 +584,4 @@ This HTTP API is one of several transport bindings defined by the ACT (Agent Com
 
 An ACT host automatically implements this HTTP API by translating between HTTP requests and the underlying component calls. However, this HTTP specification is intentionally self-contained — any HTTP server can implement it directly without WebAssembly.
 
-For the full ACT specification, see `ACT-SPEC.md`. For the MCP transport binding, see `ACT-TRANSPORT.md`.
+For the full ACT specification, see `ACT-SPEC.md`. For MCP mapping guidance, see `ACT-MCP.md`. For authentication patterns, see `ACT-AUTH.md`.
