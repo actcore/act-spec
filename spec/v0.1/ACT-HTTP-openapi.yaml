@@ -1,0 +1,410 @@
+openapi: 3.2.0
+info:
+  title: ACT HTTP API
+  version: 0.1.2
+  description: |
+    A stateless HTTP API for discovering and invoking tools.
+    Any HTTP server that conforms to this specification is a valid implementation.
+
+    This specification is HTTP version agnostic — it works over HTTP/1.1, HTTP/2, or HTTP/3.
+
+    See ACT-HTTP.md for the full prose specification.
+  license:
+    name: Apache-2.0
+
+paths:
+  /info:
+    get:
+      operationId: getInfo
+      summary: Server metadata
+      description: Returns server-level information including name, version, and capabilities.
+      parameters:
+        - $ref: "#/components/parameters/AcceptLanguage"
+      responses:
+        "200":
+          description: Server info.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServerInfo"
+
+  /config-schema:
+    get:
+      operationId: getConfigSchema
+      summary: Configuration schema
+      description: |
+        Returns a JSON Schema describing the configuration this server accepts.
+        Returns 204 if the server does not require configuration.
+      responses:
+        "200":
+          description: Config JSON Schema.
+          content:
+            application/json:
+              schema:
+                type: object
+                description: A valid JSON Schema object.
+        "204":
+          description: Server does not require configuration.
+
+  /tools:
+    get:
+      operationId: listTools
+      summary: List tools (GET fallback)
+      description: |
+        Returns the list of available tools.
+        Config is passed via the `X-ACT-Config` header (base64-encoded JSON).
+        Use `QUERY /tools` when possible to pass config in the request body instead.
+      parameters:
+        - $ref: "#/components/parameters/AcceptLanguage"
+        - $ref: "#/components/parameters/XActConfig"
+      responses:
+        "200":
+          description: Tool list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListToolsResponse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    query:
+      operationId: queryTools
+      summary: List tools (preferred)
+      description: |
+        Returns the list of available tools.
+        Config is passed in the request body as JSON.
+
+        `QUERY` is defined in draft-ietf-httpbis-safe-method-w-body.
+        It is a safe, idempotent method that accepts a request body.
+      parameters:
+        - $ref: "#/components/parameters/AcceptLanguage"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfigRequest"
+      responses:
+        "200":
+          description: Tool list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListToolsResponse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /tools/{name}:
+    post:
+      operationId: callTool
+      summary: Invoke a tool
+      description: |
+        Invokes a tool and returns the result.
+
+        The response format depends on the `Accept` header:
+        - `application/json` (default) — the server collects all results and returns a single JSON response.
+        - `text/event-stream` — the server streams results as Server-Sent Events (SSE).
+
+        The server MUST NOT stream SSE unless the client explicitly requests it via `Accept: text/event-stream`.
+
+        Tools that produce results incrementally declare `std:streaming: true` in their metadata.
+        Clients can use this hint to decide whether to request SSE, but the hint is advisory.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: Tool name as returned by `GET /tools`.
+          schema:
+            type: string
+        - $ref: "#/components/parameters/AcceptLanguage"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ToolCallRequest"
+      responses:
+        "200":
+          description: |
+            Tool result. Content-Type is `application/json` for non-streaming
+            or `text/event-stream` for streaming responses.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ToolCallResponse"
+            text/event-stream:
+              schema:
+                type: string
+                description: |
+                  SSE stream with the following event types:
+                  - `event: content` — a content part (data is a ContentPart JSON object).
+                  - `event: error` — a terminal error (data is a ToolError JSON object).
+                  - `event: done` — stream complete (data is `{}`).
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/InvalidArgs"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "504":
+          $ref: "#/components/responses/Timeout"
+
+components:
+  parameters:
+    AcceptLanguage:
+      name: Accept-Language
+      in: header
+      required: false
+      description: Preferred language for localized strings (BCP 47).
+      schema:
+        type: string
+        example: en
+
+    XActConfig:
+      name: X-ACT-Config
+      in: header
+      required: false
+      description: |
+        Base64-encoded JSON configuration. Used as a fallback for GET requests
+        when the QUERY method is not available.
+      schema:
+        type: string
+        example: eyJhcGlfa2V5IjoiYWJjMTIzIn0=
+
+  schemas:
+    ServerInfo:
+      type: object
+      required:
+        - name
+        - version
+        - description
+        - default_language
+      properties:
+        name:
+          type: string
+          description: Server name.
+          example: weather-tools
+        version:
+          type: string
+          description: SemVer version.
+          example: "1.2.0"
+        description:
+          type: string
+          description: Human-readable description (resolved to requested language).
+          example: Weather data tools
+        default_language:
+          type: string
+          description: BCP 47 language tag for the server's default language.
+          example: en
+        capabilities:
+          type: array
+          items:
+            $ref: "#/components/schemas/Capability"
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+
+    Capability:
+      type: object
+      required:
+        - id
+        - required
+      properties:
+        id:
+          type: string
+          description: Capability identifier.
+          example: network:http
+        required:
+          type: boolean
+          description: Whether the server fails without this capability.
+        description:
+          type: string
+          description: Human-readable description.
+
+    ToolDefinition:
+      type: object
+      required:
+        - name
+        - description
+        - parameters_schema
+      properties:
+        name:
+          type: string
+          description: Unique tool identifier.
+          example: get_weather
+        description:
+          type: string
+          description: Human-readable description (resolved to requested language).
+          example: Get current weather for a location
+        parameters_schema:
+          type: object
+          description: JSON Schema with `type: "object"` describing the tool's parameters.
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+
+    ListToolsResponse:
+      type: object
+      required:
+        - tools
+      properties:
+        tools:
+          type: array
+          items:
+            $ref: "#/components/schemas/ToolDefinition"
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+
+    ConfigRequest:
+      type: object
+      properties:
+        config:
+          type: object
+          description: Configuration matching the config schema.
+
+    ToolCallRequest:
+      type: object
+      required:
+        - id
+        - arguments
+      properties:
+        id:
+          type: string
+          description: Caller-assigned identifier for correlation.
+          example: call-1
+        arguments:
+          type: object
+          description: Tool arguments conforming to the tool's `parameters_schema`.
+        config:
+          type: object
+          description: Optional configuration matching the config schema.
+
+    ToolCallResponse:
+      type: object
+      required:
+        - id
+        - content
+      properties:
+        id:
+          type: string
+          description: Echoed caller-assigned identifier.
+          example: call-1
+        content:
+          type: array
+          items:
+            $ref: "#/components/schemas/ContentPart"
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+
+    ContentPart:
+      type: object
+      required:
+        - data
+      properties:
+        data:
+          type: string
+          description: |
+            Payload. Plain text for `text/*` MIME types, base64-encoded for binary types.
+          example: "London: 15°C, partly cloudy"
+        mime_type:
+          type:
+            - string
+            - "null"
+          description: MIME type. Defaults to `application/json` if absent.
+          example: text/plain
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+
+    ToolError:
+      type: object
+      required:
+        - kind
+        - message
+      properties:
+        kind:
+          type: string
+          description: |
+            Error category. Well-known values: `std:not-found`, `std:invalid-args`,
+            `std:timeout`, `std:capability-denied`, `std:internal`.
+            Custom values use a namespace prefix (e.g. `acme:rate-limited`).
+          example: std:invalid-args
+        message:
+          type: string
+          description: Human-readable error message (resolved to requested language).
+          example: "Parameter 'limit' must be a positive integer"
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          $ref: "#/components/schemas/ToolError"
+
+    Metadata:
+      type: object
+      additionalProperties: true
+      description: |
+        Key-value metadata. Well-known keys use the `std:` prefix.
+        Third-party keys use their own namespace (e.g. `acme:priority`).
+
+  responses:
+    NotFound:
+      description: Tool not found.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              kind: "std:not-found"
+              message: "Tool 'foo' does not exist"
+
+    InvalidArgs:
+      description: Arguments do not match schema.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              kind: "std:invalid-args"
+              message: "Parameter 'limit' must be a positive integer"
+
+    Forbidden:
+      description: Required capability not available.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              kind: "std:capability-denied"
+              message: "Network access not permitted"
+
+    Timeout:
+      description: Operation timed out.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              kind: "std:timeout"
+              message: "Operation exceeded 30s timeout"
+
+    InternalError:
+      description: Unexpected server error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              kind: "std:internal"
+              message: "Internal server error"

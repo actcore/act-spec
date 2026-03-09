@@ -12,11 +12,11 @@ This document specifies how ACT protocol operations map to external transport pr
 
 The ACT core protocol defines a component-level contract (WIT interfaces). Transport bindings translate between external protocols and ACT host calls. A conformant ACT host MAY support multiple transports simultaneously.
 
+The HTTP binding is specified as a standalone document (`ACT-HTTP.md`) that can be implemented without WebAssembly components. The MCP binding (Section 2) defines how an ACT host maps component calls to the MCP protocol.
+
 ### 1.2 Stateless Design
 
-ACT components are stateless — there are no server-side sessions. Each call to `list-tools` or `call-tool` carries all necessary context via the optional `config` parameter.
-
-Transport adapters MAY introduce session-like abstractions (e.g. caching config server-side) as an optimization, but this is a transport concern, not a component contract.
+ACT components are stateless. Each call to `list-tools` or `call-tool` carries all necessary context via the optional `config` parameter.
 
 ### 1.3 Config Delivery
 
@@ -30,7 +30,8 @@ Transport adapters map config to the natural mechanism for each transport:
 |---|---|
 | MCP stdio | Host-level configuration (command-line args, config file, environment) |
 | MCP SSE | Extensions in `initialize` request params |
-| HTTP | `X-ACT-Config` header or request body field |
+| HTTP (`QUERY`/`POST`) | `config` field in request body (JSON) |
+| HTTP (`GET` fallback) | `X-ACT-Config` header (base64-encoded JSON) |
 
 The host MAY merge config from multiple sources (e.g. server defaults + client-provided values) before passing it to the component.
 
@@ -147,9 +148,9 @@ When the MCP client calls `tools/call`:
    - `arguments` — `params.arguments` converted from JSON to dCBOR bytes
    - `metadata` — empty (or populated from MCP extensions if applicable)
 2. The adapter calls `call-tool(config, call)` with the cached config.
-3. The adapter receives a `call-response` containing `metadata` and `body: result<stream, tool-error>`.
+3. The adapter receives a `call-response` containing `metadata` and a `body` stream of `stream-event` values.
 
-**Result mapping (success — `body` is `ok(stream)`):**
+**Result mapping (success):**
 
 The adapter reads all `stream-event::content(part)` events from the stream and collects them into the MCP response. Response-level `metadata` from `call-response` MAY be passed as MCP result extensions if applicable.
 
@@ -173,16 +174,16 @@ The adapter reads all `stream-event::content(part)` events from the stream and c
 
 **Result mapping (error):**
 
-- Early error (`body` is `err(tool-error)`) → MCP error response with `isError: true`:
-  ```json
-  {
-    "content": [{ "type": "text", "text": "<error.message>" }],
-    "isError": true
-  }
-  ```
-  Response-level `metadata` is still available on `call-response` even in the error path.
+If the stream contains a `stream-event::error(tool-error)`, the adapter returns an MCP error response with `isError: true`. Any content-parts received before the error are included in the response, followed by the error content.
 
-- Stream error (`stream-event::error`) → same format. Any content-parts received before the error are included in the response, followed by the error content.
+```json
+{
+  "content": [{ "type": "text", "text": "<error.message>" }],
+  "isError": true
+}
+```
+
+Response-level `metadata` on `call-response` is always available, regardless of whether the stream contains an error.
 
 **Error kind to MCP error code mapping:**
 
@@ -224,210 +225,17 @@ When the MCP client sends `notifications/cancelled` for an in-flight `tools/call
 
 ## 3. HTTP Transport Binding
 
-This section defines how an ACT host exposes components over HTTP with JSON (or CBOR) payloads.
+The HTTP transport binding is specified as a standalone document: **`ACT-HTTP.md`**.
 
-### 3.1 Endpoints
+The ACT HTTP API is a self-contained specification — any HTTP server conforming to `ACT-HTTP.md` is a valid implementation, with or without WebAssembly components. This makes the ACT HTTP API usable as a lightweight, stateless alternative to MCP for tool integration.
 
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/info` | Component metadata |
-| `GET` | `/config-schema` | Config JSON Schema (or 204 if none) |
-| `GET` | `/tools` | List tools |
-| `POST` | `/tools/{name}` | Invoke a tool |
+When an ACT host exposes components over HTTP, the adapter translates between the HTTP API and component calls:
 
-When the host serves multiple components, paths are prefixed with the component name:
-
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/components` | List available components |
-| `GET` | `/components/{component}/info` | Component metadata |
-| `GET` | `/components/{component}/config-schema` | Config schema |
-| `GET` | `/components/{component}/tools` | List tools |
-| `POST` | `/components/{component}/tools/{name}` | Invoke a tool |
-
-### 3.2 Content Negotiation
-
-The adapter MUST support `application/json`. The adapter MAY support `application/cbor`.
-
-The client signals preferred encoding via `Accept` and `Content-Type` headers. If no `Accept` header is provided, the adapter defaults to `application/json`.
-
-Language selection uses the standard `Accept-Language` header.
-
-### 3.3 Config Delivery
-
-The client passes config via the `X-ACT-Config` header (base64-encoded JSON) or as a `config` field in the request body for POST requests.
-
-```
-GET /tools
-X-ACT-Config: eyJzcGVjLXVybCI6Imh0dHBzOi8vLi4uIn0=
-Accept-Language: en
-
-200 OK
-Content-Type: application/json
-
-{
-  "tools": [...]
-}
-```
-
-For components that do not require config, the header is omitted and the adapter passes `none`.
-
-The adapter MAY also support session-based config caching as an optimization (see Section 3.8).
-
-### 3.4 Tool Discovery
-
-The adapter calls `list-tools(config)` and returns a `list-tools-response`. Response-level `metadata` from `list-tools-response` MAY be mapped to HTTP response headers with an `X-ACT-Meta-` prefix.
-
-```
-GET /tools
-X-ACT-Config: eyJzcGVjLXVybCI6Imh0dHBzOi8vLi4uIn0=
-Accept-Language: ru
-
-200 OK
-Content-Type: application/json
-
-{
-  "tools": [
-    {
-      "name": "search_web",
-      "description": "Поиск в интернете",
-      "parameters": [ ... ],
-      "metadata": { ... }
-    }
-  ]
-}
-```
-
-On error (`tool-error`), the adapter returns the appropriate HTTP error status (see Section 3.6).
-
-Localized strings in the response are resolved to the language requested via `Accept-Language`.
-
-### 3.5 Tool Invocation
-
-The adapter receives a `call-response` containing `metadata` and `body`. Response-level `metadata` from `call-response` MAY be mapped to HTTP response headers with an `X-ACT-Meta-` prefix.
-
-**Non-streaming:**
-
-```
-POST /tools/search_web
-X-ACT-Config: eyJzcGVjLXVybCI6Imh0dHBzOi8vLi4uIn0=
-Content-Type: application/json
-
-{
-  "id": "call-1",
-  "arguments": { "query": "rust wasm", "limit": 5 }
-}
-
-200 OK
-Content-Type: application/json
-
-{
-  "id": "call-1",
-  "content": [
-    { "data": "...", "mime_type": "text/plain" },
-    { "data": "AQIDBA==", "mime_type": "image/png" }
-  ]
-}
-```
-
-Each `content-part` is serialized as a JSON object with `data` (text or base64 for binary), `mime_type` (string or null for default `application/cbor`), and optional `metadata`. The adapter collects all stream events and returns the complete result.
-
-**Streaming (Server-Sent Events):**
-
-When the client includes `Accept: text/event-stream`, the adapter streams results as SSE:
-
-```
-POST /tools/search_web
-X-ACT-Config: eyJzcGVjLXVybCI6Imh0dHBzOi8vLi4uIn0=
-Content-Type: application/json
-Accept: text/event-stream
-
-{
-  "id": "call-1",
-  "arguments": { "query": "rust wasm", "limit": 5 }
-}
-
-200 OK
-Content-Type: text/event-stream
-
-event: content
-data: {"data": "First result...", "mime_type": "text/plain"}
-
-event: content
-data: {"data": "Second result...", "mime_type": "text/plain"}
-
-event: done
-data: {}
-```
-
-If an error occurs mid-stream:
-
-```
-event: error
-data: {"kind": "std:internal", "message": "Connection to search provider lost"}
-```
-
-The `error` and `done` events are terminal — the stream closes after either.
-
-### 3.6 Error Responses
-
-| ACT `tool-error.kind` | HTTP status |
-|---|---|
-| `std:not-found` | `404 Not Found` |
-| `std:invalid-args` | `422 Unprocessable Entity` |
-| `std:timeout` | `504 Gateway Timeout` |
-| `std:capability-denied` | `403 Forbidden` |
-| `std:internal` | `500 Internal Server Error` |
-
-Error response body:
-
-```json
-{
-  "error": {
-    "kind": "std:invalid-args",
-    "message": "Parameter 'limit' must be a positive integer"
-  }
-}
-```
-
-For early errors (before streaming), the adapter returns the appropriate HTTP status code. For stream errors during SSE, the adapter sends an `event: error` SSE event and closes the connection.
-
-### 3.7 Cancellation
-
-The client cancels a streaming request by closing the HTTP connection. The adapter drops the ACT stream handle, triggering cancellation as defined in ACT-SPEC Section 4.4.
-
-### 3.8 Optional Session Optimization
-
-For clients that make multiple calls with the same config, the adapter MAY offer a session mechanism to avoid repeating config on every request:
-
-```
-POST /sessions
-Content-Type: application/json
-
-{
-  "component": "openapi-bridge",
-  "config": {
-    "spec-url": "https://api.example.com/openapi.json",
-    "auth-header": "Bearer sk-..."
-  }
-}
-
-200 OK
-{
-  "session_id": "abc123",
-  "idle_timeout_ms": 300000
-}
-```
-
-Once a session is established, the client uses it in place of `X-ACT-Config`:
-
-```
-GET /sessions/abc123/tools
-POST /sessions/abc123/tools/search_web
-DELETE /sessions/abc123
-```
-
-This is purely a transport optimization. The adapter internally passes the cached config to `list-tools` and `call-tool` on every invocation. The component is unaware of sessions.
+- `GET /tools` or `QUERY /tools` → `list-tools(config)`, with `localized-string` values resolved to the language requested via `Accept-Language`.
+- `POST /tools/{name}` → `call-tool(config, call)`, with JSON arguments converted to dCBOR bytes.
+- Config from request body (`config` field) or `X-ACT-Config` header (base64-encoded JSON, fallback for GET) is decoded and converted to dCBOR before passing to the component.
+- Response-level `metadata` from `list-tools-response` and `call-response` MAY be mapped to HTTP response headers with an `X-ACT-Meta-` prefix.
+- Cancellation: client closes the HTTP connection → adapter drops the ACT stream handle (Section 4.4 of ACT-SPEC).
 
 ---
 
@@ -446,12 +254,9 @@ A conformant MCP transport adapter:
 
 ### 4.2 Conformant HTTP Adapter
 
-A conformant HTTP transport adapter:
-- MUST support config delivery via `X-ACT-Config` header and convert it to dCBOR before passing to the component.
+A conformant HTTP transport adapter MUST produce an HTTP API conforming to `ACT-HTTP.md` (Section 11). In addition:
+- MUST convert JSON config (from request body or `X-ACT-Config` header) to dCBOR before passing to the component.
 - MUST convert JSON arguments from request body to dCBOR bytes for `tool-call.arguments`.
-- MUST support `application/json` content type.
-- MUST support `Accept-Language` for localization.
-- MUST map `tool-error.kind` values with `std:` prefix to HTTP status codes as defined in Section 3.6.
-- MUST support non-streaming tool invocation with `call-response` handling.
-- SHOULD support SSE streaming via `Accept: text/event-stream`.
-- SHOULD map response-level `metadata` from `list-tools-response` and `call-response` to HTTP response headers.
+- MUST resolve `localized-string` values to the language requested via `Accept-Language`.
+- SHOULD support `QUERY /tools` with config in request body.
+- SHOULD map response-level `metadata` from `list-tools-response` and `call-response` to HTTP response headers with an `X-ACT-Meta-` prefix.

@@ -54,7 +54,8 @@ interface types {
     /// detected via the `$schema` field.
     parameters-schema: string,
     /// Well-known keys: std:read-only, std:idempotent, std:destructive,
-    /// std:usage-hints, std:anti-usage-hints, std:examples, std:tags, std:timeout-ms.
+    /// std:usage-hints, std:anti-usage-hints, std:examples, std:tags, std:timeout-ms,
+    /// std:streaming.
     metadata: metadata,
   }
 
@@ -94,6 +95,7 @@ interface types {
   }
 
   /// A single event in the tool result stream.
+  /// A `stream-event::error` is terminal — the stream closes after it.
   variant stream-event {
     content(content-part),
     error(tool-error),
@@ -104,10 +106,11 @@ interface types {
   //  Response wrappers
   // ──────────────────────────────────────────────
 
-  /// Response from call-tool. Metadata is available for both success and error paths.
+  /// Response from call-tool. Metadata is available immediately;
+  /// body is a stream of content and/or a terminal error.
   record call-response {
     metadata: metadata,
-    body: result<stream<stream-event>, tool-error>,
+    body: stream<stream-event>,
   }
 
   /// Response from list-tools.
@@ -138,7 +141,8 @@ interface tool-provider {
 
   /// Returns the list of tools available for the given configuration.
   /// `config` is dCBOR validated against the schema from `get-config-schema`.
-  list-tools: func(config: option<list<u8>>) -> result<list-tools-response, tool-error>;
+  /// Async because bridge components may need to fetch remote schemas.
+  list-tools: async func(config: option<list<u8>>) -> result<list-tools-response, tool-error>;
 
   /// Invokes a tool and returns a response with metadata and a stream of results.
   /// Metadata is available regardless of whether the call succeeds or fails.

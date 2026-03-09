@@ -15,7 +15,7 @@ A single ACT component is a `.wasm` file that exports a well-known set of interf
 - **Universal access** — one component serves both agent-oriented (MCP-compatible) and application-oriented (binary RPC) consumers through transport adapters.
 - **Self-documenting** — every tool carries localized descriptions, parameter schemas, usage hints, and behavioral annotations directly in the component.
 - **Sandboxed** — WASM isolation provides capability-based security by default. Components cannot access host resources unless explicitly linked.
-- **Stateless** — components are stateless functions. Configuration is passed per-call, enabling horizontal scaling and CDN/proxy compatibility.
+- **Stateless protocol** — configuration is passed per-call, enabling horizontal scaling and CDN/proxy compatibility. Components MAY maintain internal state (caches, connection pools) as a private optimization, but the protocol does not manage or expose it.
 - **Streaming** — tool results are always delivered as a stream, unifying atomic and incremental result patterns.
 - **Efficient** — Deterministically Encoded CBOR for arguments, config, and content data. Native binary support without base64 overhead.
 - **Extensible** — every record carries a `metadata` field with namespaced key-value pairs; breaking changes are handled through WIT package versioning.
@@ -123,7 +123,8 @@ interface types {
     /// detected via the `$schema` field.
     parameters-schema: string,
     /// Well-known keys: std:read-only, std:idempotent, std:destructive,
-    /// std:usage-hints, std:anti-usage-hints, std:examples, std:tags, std:timeout-ms.
+    /// std:usage-hints, std:anti-usage-hints, std:examples, std:tags, std:timeout-ms,
+    /// std:streaming.
     metadata: metadata,
   }
 
@@ -163,6 +164,7 @@ interface types {
   }
 
   /// A single event in the tool result stream.
+  /// A `stream-event::error` is terminal — the stream closes after it.
   variant stream-event {
     content(content-part),
     error(tool-error),
@@ -173,10 +175,11 @@ interface types {
   //  Response wrappers
   // ──────────────────────────────────────────────
 
-  /// Response from call-tool. Metadata is available for both success and error paths.
+  /// Response from call-tool. Metadata is available immediately;
+  /// body is a stream of content and/or a terminal error.
   record call-response {
     metadata: metadata,
-    body: result<stream<stream-event>, tool-error>,
+    body: stream<stream-event>,
   }
 
   /// Response from list-tools.
@@ -211,7 +214,8 @@ interface tool-provider {
 
   /// Returns the list of tools available for the given configuration.
   /// `config` is dCBOR validated against the schema from `get-config-schema`.
-  list-tools: func(config: option<list<u8>>) -> result<list-tools-response, tool-error>;
+  /// Async because bridge components may need to fetch remote schemas.
+  list-tools: async func(config: option<list<u8>>) -> result<list-tools-response, tool-error>;
 
   /// Invokes a tool and returns a response with metadata and a stream of results.
   /// Metadata is available regardless of whether the call succeeds or fails.
@@ -243,7 +247,9 @@ If the component imports a WASI interface that the host did not link, the compon
 
 ### 4.2 Tool Discovery
 
-1. The host (or transport adapter) calls `list-tools(config)`.
+`list-tools` is an async function. Bridge components may need to fetch remote schemas (e.g. OpenAPI specs) during discovery, which requires I/O. Simple components return immediately; the async signature imposes no overhead in that case.
+
+1. The host (or transport adapter) calls `list-tools(config)` and awaits the result.
 2. If `list-tools` returns `Ok(list-tools-response)`, the host processes the response metadata and tool definitions.
 3. If `list-tools` returns `Err(tool-error)`, the host MUST surface the error to the caller through the appropriate transport mechanism. The host MUST NOT cache error results.
 4. The host SHOULD cache successful results for a given config value unless the component indicates dynamism through metadata.
@@ -257,10 +263,11 @@ For components without configuration (`get-config-schema` returns `none`), the h
 3. The host MUST validate `config` against the schema from `get-config-schema` if present. If the component requires config and `none` is provided, or if the config does not match the schema, the host MUST return a `tool-error` with kind `std:invalid-args`.
 4. The host MUST ensure `arguments` and `config` are deterministically encoded before passing them to the component.
 5. The host calls `call-tool(config, call)`.
-6. The host receives a `call-response` with response-level `metadata` and a `body` result. On success, the host reads `stream-event` values from the stream in `body`:
+6. The host receives a `call-response` with response-level `metadata` and a `body` stream. The host reads `stream-event` values from the stream:
    - `content(part)` — a piece of result content. There may be zero or more.
    - `error(e)` — a terminal error. The stream ends after this event.
 7. When the stream completes without an `error` event, the call is considered successful.
+8. If the error occurs before execution begins (e.g. tool not found, capability denied), the component returns a stream with a single `error` event.
 
 ### 4.4 Cancellation
 
@@ -281,7 +288,7 @@ Transport adapters map config to the natural mechanism for each transport:
 
 | Transport | Config mechanism |
 |-----------|-----------------|
-| HTTP | Headers (e.g. `X-ACT-Config`) or derived from session state |
+| HTTP | `config` field in request body or `X-ACT-Config` header |
 | MCP stdio | Process environment or host configuration |
 | MCP SSE | Extensions in `initialize` request |
 
@@ -451,8 +458,23 @@ The following well-known keys are defined for `tool-definition.metadata`. All va
 | `std:examples` | array of bstr | Example tool calls as CBOR-encoded argument maps. |
 | `std:tags` | array of tstr | Categorization tags. |
 | `std:timeout-ms` | uint | Suggested timeout in milliseconds. The host MAY override this. |
+| `std:streaming` | bool | Tool produces results incrementally. Clients MAY use this hint to prefer streaming transports (e.g. SSE). |
 
-Response metadata (`call-response.metadata`, `list-tools-response.metadata`) has no well-known keys defined in this version. Hosts and components MAY define their own (e.g. `acme:request-id`, `acme:cache-ttl-ms`).
+The following well-known keys are defined for `content-part.metadata`:
+
+| Key | CBOR type | Description |
+|-----|-----------|-------------|
+| `std:progress` | uint | Number of units completed so far. |
+| `std:progress-total` | uint | Total number of units, if known. |
+
+The following well-known keys may appear on any metadata field (`tool-call.metadata`, `call-response.metadata`, `list-tools-response.metadata`, etc.):
+
+| Key | CBOR type | Description |
+|-----|-----------|-------------|
+| `std:traceparent` | tstr | W3C Trace Context `traceparent` header value ([W3C Trace Context](https://www.w3.org/TR/trace-context/)). Enables distributed tracing across component boundaries. |
+| `std:tracestate` | tstr | W3C Trace Context `tracestate` header value. Carries vendor-specific trace data. |
+
+Transport adapters SHOULD propagate `std:traceparent` and `std:tracestate` to/from the corresponding HTTP headers (`traceparent`, `tracestate`) or MCP request extensions.
 
 Hosts MUST NOT reject metadata entries with unrecognized keys. Components MUST NOT require specific response metadata keys to be present.
 
@@ -470,24 +492,13 @@ A host MAY support multiple interface versions simultaneously. A component decla
 
 ## 9. Error Handling
 
-### 9.1 Two-Level Error Model
+### 9.1 Stream Error Model
 
-Errors are surfaced at two levels:
+All errors from `call-tool` are delivered as `stream-event::error(tool-error)` events in the response stream. A `stream-event::error` is terminal — the stream MUST close after it. There is no separate early-error path; errors that occur before execution begins (e.g. tool not found, capability denied) are returned as a stream with a single `error` event.
 
-**Level 1 — Early errors (before streaming begins):**
+The response-level `metadata` on `call-response` is always available, regardless of whether the stream contains an error.
 
-`call-response.body` is `result<stream<stream-event>, tool-error>`. If it is `Err`, the stream was never opened. The response-level `metadata` is still available. This covers:
-- Tool not found (`std:not-found`)
-- Argument validation failure (`std:invalid-args`)
-- Config validation failure (`std:invalid-args`)
-- Capability denied (`std:capability-denied`)
-
-**Level 2 — Stream errors (during execution):**
-
-A `stream-event::error(tool-error)` event may appear at any point in the stream. It is terminal — the stream ends after this event. This covers:
-- Timeouts (`std:timeout`)
-- Internal failures (`std:internal`)
-- Any error that occurs after execution has begun
+Content parts delivered before an `error` event are valid and SHOULD be delivered to the caller.
 
 ### 9.2 Error Kind Semantics
 
@@ -597,7 +608,8 @@ interface types {
     /// detected via the `$schema` field.
     parameters-schema: string,
     /// Well-known keys: std:read-only, std:idempotent, std:destructive,
-    /// std:usage-hints, std:anti-usage-hints, std:examples, std:tags, std:timeout-ms.
+    /// std:usage-hints, std:anti-usage-hints, std:examples, std:tags, std:timeout-ms,
+    /// std:streaming.
     metadata: metadata,
   }
 
@@ -637,6 +649,7 @@ interface types {
   }
 
   /// A single event in the tool result stream.
+  /// A `stream-event::error` is terminal — the stream closes after it.
   variant stream-event {
     content(content-part),
     error(tool-error),
@@ -647,10 +660,11 @@ interface types {
   //  Response wrappers
   // ──────────────────────────────────────────────
 
-  /// Response from call-tool. Metadata is available for both success and error paths.
+  /// Response from call-tool. Metadata is available immediately;
+  /// body is a stream of content and/or a terminal error.
   record call-response {
     metadata: metadata,
-    body: result<stream<stream-event>, tool-error>,
+    body: stream<stream-event>,
   }
 
   /// Response from list-tools.
@@ -681,7 +695,8 @@ interface tool-provider {
 
   /// Returns the list of tools available for the given configuration.
   /// `config` is dCBOR validated against the schema from `get-config-schema`.
-  list-tools: func(config: option<list<u8>>) -> result<list-tools-response, tool-error>;
+  /// Async because bridge components may need to fetch remote schemas.
+  list-tools: async func(config: option<list<u8>>) -> result<list-tools-response, tool-error>;
 
   /// Invokes a tool and returns a response with metadata and a stream of results.
   /// Metadata is available regardless of whether the call succeeds or fails.
@@ -796,24 +811,16 @@ A successful `call-response` (shown as JSON for readability):
   "metadata": [
     ["acme:request-id", "req-abc-123"]
   ],
-  "body": {
-    "ok": "<stream of stream-events>"
-  }
+  "body": "<stream of stream-events>"
 }
 ```
 
-An early error `call-response` — metadata is still available:
+An error `call-response` — metadata is still available, error is the sole stream event:
 
 ```json
 {
   "metadata": [
     ["acme:request-id", "req-abc-456"]
   ],
-  "body": {
-    "err": {
-      "kind": "std:not-found",
-      "message": [["en", "Tool 'foo' does not exist"]],
-      "metadata": []
-    }
-  }
+  "body": "<stream: [error({ kind: 'std:not-found', message: [['en', 'Tool foo does not exist']], metadata: [] })]>"
 }
