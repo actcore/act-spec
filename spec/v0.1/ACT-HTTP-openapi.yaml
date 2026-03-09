@@ -1,7 +1,7 @@
 openapi: 3.2.0
 info:
   title: ACT HTTP API
-  version: 0.1.2
+  version: 0.1.3
   description: |
     A stateless HTTP API for discovering and invoking tools.
     Any HTTP server that conforms to this specification is a valid implementation.
@@ -94,6 +94,79 @@ paths:
                 $ref: "#/components/schemas/ListToolsResponse"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /events:
+    get:
+      operationId: subscribeEvents
+      summary: Subscribe to server events
+      description: |
+        Opens a Server-Sent Events stream for push notifications.
+        The stream stays open until the client disconnects.
+
+        Servers that do not support events return 404.
+      parameters:
+        - $ref: "#/components/parameters/XActConfig"
+      responses:
+        "200":
+          description: SSE event stream.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: |
+                  SSE stream with event kinds as event types:
+                  - `event: std:tools:changed` — tool list changed
+                  - `event: std:resources:changed` — resource list changed
+                  - `event: std:events:changed` — event type list changed
+                  - `event: <custom>` — custom event kind
+                  Data is a JSON object (or `{}` for events with no payload).
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /resources:
+    get:
+      operationId: listResources
+      summary: List available resources
+      description: Returns the list of resources available from this server.
+      parameters:
+        - $ref: "#/components/parameters/AcceptLanguage"
+        - $ref: "#/components/parameters/XActConfig"
+      responses:
+        "200":
+          description: Resource list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListResourcesResponse"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /resources/{uri}:
+    get:
+      operationId: getResource
+      summary: Get a resource
+      description: |
+        Returns a resource as raw bytes with the appropriate Content-Type header.
+      parameters:
+        - name: uri
+          in: path
+          required: true
+          description: Resource URI as returned by `GET /resources`.
+          schema:
+            type: string
+        - $ref: "#/components/parameters/XActConfig"
+      responses:
+        "200":
+          description: Resource content.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "404":
+          $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -255,6 +328,41 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ToolDefinition"
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+
+    ResourceInfo:
+      type: object
+      required:
+        - uri
+        - description
+      properties:
+        uri:
+          type: string
+          description: Resource identifier.
+          example: "std:icon"
+        mime_type:
+          type:
+            - string
+            - "null"
+          description: Expected MIME type.
+          example: image/png
+        description:
+          type: string
+          description: Human-readable description (resolved to requested language).
+          example: Component icon
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+
+    ListResourcesResponse:
+      type: object
+      required:
+        - resources
+      properties:
+        resources:
+          type: array
+          items:
+            $ref: "#/components/schemas/ResourceInfo"
         metadata:
           $ref: "#/components/schemas/Metadata"
 
