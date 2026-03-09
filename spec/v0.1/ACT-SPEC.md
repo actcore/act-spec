@@ -1,6 +1,6 @@
 # ACT: Agent Component Tools
 
-**Protocol Specification — Version 0.1.2 (Draft)**
+**Protocol Specification — Version 0.1.3 (Draft)**
 
 ---
 
@@ -63,7 +63,7 @@ CBOR examples use CBOR diagnostic notation (RFC 8949 §8).
 ### 3.1 Package
 
 ```wit
-package act:core@0.1.2;
+package act:core@0.1.3;
 ```
 
 ### 3.2 Types Interface
@@ -231,6 +231,76 @@ world act-world {
 }
 ```
 
+Components MAY additionally export `event-provider` (Section 3.5) and/or `resource-provider` (Section 3.6). The host detects available interfaces at load time.
+
+### 3.5 Event Provider Interface (Optional)
+
+Components that emit events export the `event-provider` interface (defined in `act-events.wit`):
+
+```wit
+interface event-types {
+  use types.{localized-string, metadata};
+
+  record event-type-info {
+    kind: string,
+    description: localized-string,
+    metadata: metadata,
+  }
+
+  record event {
+    kind: string,
+    data: option<list<u8>>,
+    metadata: metadata,
+  }
+}
+
+interface event-provider {
+  use event-types.{event-type-info, event};
+
+  get-event-types: func() -> list<event-type-info>;
+  subscribe: async func(config: option<list<u8>>) -> stream<event>;
+}
+```
+
+- `get-event-types` returns the list of event kinds the component can emit. The host calls this at load time and MAY cache the result.
+- `subscribe` opens a stream of events. The host reads events as they arrive. The stream stays open until the component closes it or the host drops the handle (cancellation).
+- `config` follows the same pattern as `list-tools` and `call-tool` — bridge components may need credentials for external event sources.
+
+### 3.6 Resource Provider Interface (Optional)
+
+Components that provide resources export the `resource-provider` interface (defined in `act-resources.wit`):
+
+```wit
+interface resource-types {
+  use types.{localized-string, metadata};
+
+  record resource-info {
+    uri: string,
+    mime-type: option<string>,
+    description: localized-string,
+    metadata: metadata,
+  }
+
+  record resource-response {
+    mime-type: option<string>,
+    metadata: metadata,
+    body: stream<u8>,
+  }
+}
+
+interface resource-provider {
+  use resource-types.{resource-info, resource-response};
+  use types.{tool-error};
+
+  list-resources: async func(config: option<list<u8>>) -> list<resource-info>;
+  get-resource: async func(config: option<list<u8>>, uri: string) -> resource-response;
+}
+```
+
+- `list-resources` returns the list of available resources with URIs, MIME types, and descriptions.
+- `get-resource` returns a `resource-response` with the actual MIME type, metadata, and a byte stream body. The MIME type MAY differ from the one declared in `resource-info` (content negotiation).
+- Well-known URI: `std:icon` — component icon (PNG or SVG).
+
 ---
 
 ## 4. Component Lifecycle
@@ -293,6 +363,25 @@ Transport adapters map config to the natural mechanism for each transport:
 | MCP SSE | Extensions in `initialize` request |
 
 The host MAY merge config from multiple sources (e.g. server defaults + client-provided values) before passing it to the component.
+
+### 4.6 Event Subscription
+
+If the component exports `event-provider`:
+
+1. The host calls `get-event-types()` at load time to discover available event kinds.
+2. The host calls `subscribe(config)` to open an event stream.
+3. The host reads `event` values from the stream. Each event has a `kind` (matching a declared event kind), optional `data` (dCBOR payload), and `metadata`.
+4. The stream stays open until the component closes it or the host drops the handle.
+5. If the host drops the handle, the component SHOULD release resources promptly.
+
+### 4.7 Resource Access
+
+If the component exports `resource-provider`:
+
+1. The host calls `list-resources(config)` to discover available resources.
+2. The host calls `get-resource(config, uri)` to retrieve a specific resource.
+3. The host reads the byte stream from `resource-response.body`.
+4. The host uses `resource-response.mime-type` (or falls back to `resource-info.mime-type`) to determine the content type.
 
 ---
 
@@ -478,12 +567,28 @@ Transport adapters SHOULD propagate `std:traceparent` and `std:tracestate` to/fr
 
 Hosts MUST NOT reject metadata entries with unrecognized keys. Components MUST NOT require specific response metadata keys to be present.
 
+The following well-known event kinds are defined for `event-type-info.kind` and `event.kind`:
+
+| Kind | Description |
+|------|-------------|
+| `std:tools:changed` | Tool list has changed. Clients SHOULD re-fetch via `list-tools`. |
+| `std:resources:changed` | Resource list has changed. Clients SHOULD re-fetch via `list-resources`. |
+| `std:events:changed` | Event type list has changed. Clients SHOULD re-fetch via `get-event-types`. |
+
+Custom event kinds use namespace prefix (e.g. `acme:order_updated`).
+
+The following well-known resource URIs are defined:
+
+| URI | Description |
+|-----|-------------|
+| `std:icon` | Component icon. Expected MIME type: `image/png` or `image/svg+xml`. |
+
 ### 8.3 Versioning
 
 Breaking changes to the WIT interfaces are handled through WIT package versioning:
 
 ```
-act:core@0.1.0  ->  act:core@0.1.1  ->  act:core@0.1.2  ->  act:core@1.0.0
+act:core@0.1.0  ->  act:core@0.1.1  ->  act:core@0.1.2  ->  act:core@0.1.3  ->  act:core@1.0.0
 ```
 
 A host MAY support multiple interface versions simultaneously. A component declares which version it implements through its WIT world.
@@ -549,10 +654,12 @@ A conformant ACT host:
 
 ## Appendix A: Complete WIT
 
-The complete WIT package as a single file:
+The WIT package is split across three files. All files share the package declaration `act:core@0.1.3`.
+
+**`wit/act-core.wit`** — types, tool-provider, and world:
 
 ```wit
-package act:core@0.1.2;
+package act:core@0.1.3;
 
 interface types {
 
@@ -705,6 +812,89 @@ interface tool-provider {
 
 world act-world {
   export tool-provider;
+  /// Optional: export event-provider for push notifications.
+  /// Optional: export resource-provider for static/dynamic resources.
+}
+```
+
+**`wit/act-events.wit`** — event types and event-provider interface:
+
+```wit
+package act:core@0.1.3;
+
+interface event-types {
+  use types.{localized-string, metadata};
+
+  /// Describes a type of event the component can emit.
+  record event-type-info {
+    /// Event kind identifier. Well-known: "std:tools:changed",
+    /// "std:resources:changed", "std:events:changed".
+    /// Custom kinds use namespace prefix (e.g. "acme:order_updated").
+    kind: string,
+    description: localized-string,
+    metadata: metadata,
+  }
+
+  /// A single event emitted by the component.
+  record event {
+    /// Event kind, matching one of the kinds from get-event-types.
+    kind: string,
+    /// Optional dCBOR-encoded payload.
+    data: option<list<u8>>,
+    metadata: metadata,
+  }
+}
+
+interface event-provider {
+  use event-types.{event-type-info, event};
+
+  /// Returns the list of event types this component can emit.
+  /// The host calls this at load time and MAY cache the result.
+  get-event-types: func() -> list<event-type-info>;
+
+  /// Opens a stream of events. The host reads events as they arrive.
+  /// The stream stays open until the component closes it or the host drops the handle.
+  subscribe: async func(config: option<list<u8>>) -> stream<event>;
+}
+```
+
+**`wit/act-resources.wit`** — resource types and resource-provider interface:
+
+```wit
+package act:core@0.1.3;
+
+interface resource-types {
+  use types.{localized-string, metadata};
+
+  /// Describes a resource available from the component.
+  record resource-info {
+    /// Resource URI. Well-known: "std:icon".
+    uri: string,
+    /// Expected MIME type of the resource.
+    mime-type: option<string>,
+    description: localized-string,
+    metadata: metadata,
+  }
+
+  /// Response from get-resource.
+  record resource-response {
+    /// Actual MIME type (may differ from resource-info listing).
+    mime-type: option<string>,
+    metadata: metadata,
+    body: stream<u8>,
+  }
+}
+
+interface resource-provider {
+  use resource-types.{resource-info, resource-response};
+  use types.{tool-error};
+
+  /// Returns the list of resources available from this component.
+  list-resources: async func(config: option<list<u8>>) -> list<resource-info>;
+
+  /// Returns a resource by URI.
+  /// Returns a resource-response with mime-type, metadata, and a byte stream.
+  get-resource: async func(config: option<list<u8>>, uri: string) -> resource-response;
 }
 ```
 
