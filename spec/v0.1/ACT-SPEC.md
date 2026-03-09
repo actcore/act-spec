@@ -235,11 +235,13 @@ Components MAY additionally export `event-provider` (Section 3.5) and/or `resour
 
 ### 3.5 Event Provider Interface (Optional)
 
-Components that emit events export the `event-provider` interface (defined in `act-events.wit`):
+Components that emit events export the `event-provider` interface from the `act:events@0.1.3` package (defined in `act-events.wit`):
 
 ```wit
-interface event-types {
-  use types.{localized-string, metadata};
+package act:events@0.1.3;
+
+interface types {
+  use act:core/types.{localized-string, metadata};
 
   record event-type-info {
     kind: string,
@@ -255,7 +257,7 @@ interface event-types {
 }
 
 interface event-provider {
-  use event-types.{event-type-info, event};
+  use types.{event-type-info, event};
 
   get-event-types: func() -> list<event-type-info>;
   subscribe: async func(config: option<list<u8>>) -> stream<event>;
@@ -268,11 +270,13 @@ interface event-provider {
 
 ### 3.6 Resource Provider Interface (Optional)
 
-Components that provide resources export the `resource-provider` interface (defined in `act-resources.wit`):
+Components that provide resources export the `resource-provider` interface from the `act:resources@0.1.3` package (defined in `act-resources.wit`):
 
 ```wit
-interface resource-types {
-  use types.{localized-string, metadata};
+package act:resources@0.1.3;
+
+interface types {
+  use act:core/types.{localized-string, metadata};
 
   record resource-info {
     uri: string,
@@ -289,8 +293,7 @@ interface resource-types {
 }
 
 interface resource-provider {
-  use resource-types.{resource-info, resource-response};
-  use types.{tool-error};
+  use types.{resource-info, resource-response};
 
   list-resources: async func(config: option<list<u8>>) -> list<resource-info>;
   get-resource: async func(config: option<list<u8>>, uri: string) -> resource-response;
@@ -654,7 +657,7 @@ A conformant ACT host:
 
 ## Appendix A: Complete WIT
 
-The WIT package is split across three files. All files share the package declaration `act:core@0.1.3`.
+The WIT is split across three files in three packages: `act:core@0.1.3`, `act:events@0.1.3`, and `act:resources@0.1.3`. The events and resources packages depend on `act:core/types`.
 
 **`wit/act-core.wit`** — types, tool-provider, and world:
 
@@ -817,13 +820,13 @@ world act-world {
 }
 ```
 
-**`wit/act-events.wit`** — event types and event-provider interface:
+**`wit/act-events.wit`** — event types and event-provider interface (`act:events` package):
 
 ```wit
-package act:core@0.1.3;
+package act:events@0.1.3;
 
-interface event-types {
-  use types.{localized-string, metadata};
+interface types {
+  use act:core/types.{localized-string, metadata};
 
   /// Describes a type of event the component can emit.
   record event-type-info {
@@ -846,7 +849,7 @@ interface event-types {
 }
 
 interface event-provider {
-  use event-types.{event-type-info, event};
+  use types.{event-type-info, event};
 
   /// Returns the list of event types this component can emit.
   /// The host calls this at load time and MAY cache the result.
@@ -858,13 +861,13 @@ interface event-provider {
 }
 ```
 
-**`wit/act-resources.wit`** — resource types and resource-provider interface:
+**`wit/act-resources.wit`** — resource types and resource-provider interface (`act:resources` package):
 
 ```wit
-package act:core@0.1.3;
+package act:resources@0.1.3;
 
-interface resource-types {
-  use types.{localized-string, metadata};
+interface types {
+  use act:core/types.{localized-string, metadata};
 
   /// Describes a resource available from the component.
   record resource-info {
@@ -886,8 +889,7 @@ interface resource-types {
 }
 
 interface resource-provider {
-  use resource-types.{resource-info, resource-response};
-  use types.{tool-error};
+  use types.{resource-info, resource-response};
 
   /// Returns the list of resources available from this component.
   list-resources: async func(config: option<list<u8>>) -> list<resource-info>;
