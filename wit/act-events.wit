@@ -1,0 +1,36 @@
+package act:core@0.1.3;
+
+interface event-types {
+  use types.{localized-string, metadata};
+
+  /// Describes a type of event the component can emit.
+  record event-type-info {
+    /// Event kind identifier. Well-known: "std:tools:changed",
+    /// "std:resources:changed", "std:events:changed".
+    /// Custom kinds use namespace prefix (e.g. "acme:order_updated").
+    kind: string,
+    description: localized-string,
+    metadata: metadata,
+  }
+
+  /// A single event emitted by the component.
+  record event {
+    /// Event kind, matching one of the kinds from get-event-types.
+    kind: string,
+    /// Optional dCBOR-encoded payload.
+    data: option<list<u8>>,
+    metadata: metadata,
+  }
+}
+
+interface event-provider {
+  use event-types.{event-type-info, event};
+
+  /// Returns the list of event types this component can emit.
+  /// The host calls this at load time and MAY cache the result.
+  get-event-types: func() -> list<event-type-info>;
+
+  /// Opens a stream of events. The host reads events as they arrive.
+  /// The stream stays open until the component closes it or the host drops the handle.
+  subscribe: async func(config: option<list<u8>>) -> stream<event>;
+}
