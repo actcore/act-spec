@@ -1,7 +1,7 @@
-package act:core@0.1.3;
+package act:events@0.1.3;
 
-interface event-types {
-  use types.{localized-string, metadata};
+interface types {
+  use act:core/types.{localized-string, metadata};
 
   /// Describes a type of event the component can emit.
   record event-type-info {
@@ -24,7 +24,7 @@ interface event-types {
 }
 
 interface event-provider {
-  use event-types.{event-type-info, event};
+  use types.{event-type-info, event};
 
   /// Returns the list of event types this component can emit.
   /// The host calls this at load time and MAY cache the result.
