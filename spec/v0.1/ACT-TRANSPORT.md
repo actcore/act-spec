@@ -1,6 +1,6 @@
 # ACT Transport Bindings
 
-**Version 0.1.2 (Draft)**
+**Version 0.1.3 (Draft)**
 
 This document specifies how ACT protocol operations map to external transport protocols. It is a companion to the core ACT specification (`ACT-SPEC.md`).
 
@@ -97,12 +97,13 @@ The MCP `initialize` response MUST include:
     "version": "<component-info.version>"
   },
   "capabilities": {
-    "tools": {}
+    "tools": {},
+    "resources": {}
   }
 }
 ```
 
-The adapter MAY include additional MCP capabilities (e.g. `resources`, `prompts`) if the component exports corresponding ACT interfaces in future spec versions.
+The adapter includes `resources` in capabilities if the component exports `resource-provider`. Event notifications are sent proactively and do not require a capability declaration.
 
 ### 2.2 Config Resolution
 
@@ -221,6 +222,40 @@ When the MCP client sends `notifications/cancelled` for an in-flight `tools/call
 1. The adapter drops the ACT stream handle for the corresponding call.
 2. The adapter returns an MCP error response with code `-32800` (Request cancelled).
 
+### 2.7 Event Notifications
+
+If the component exports `event-provider` (`act:events` package), the adapter maps events to MCP notifications:
+
+| ACT event kind | MCP notification |
+|---|---|
+| `std:tools:changed` | `notifications/tools/list_changed` |
+| `std:resources:changed` | `notifications/resources/list_changed` |
+| Custom kinds | Adapter-defined (MAY use MCP notification extensions) |
+
+The adapter calls `subscribe(config)` when the MCP session starts and reads events from the stream. For each event, the adapter sends the corresponding MCP notification to the client.
+
+When the MCP session ends, the adapter drops the event stream handle.
+
+### 2.8 Resources
+
+If the component exports `resource-provider` (`act:resources` package), the adapter exposes resources as MCP resources.
+
+The adapter includes `"resources": {}` in the MCP `initialize` capabilities.
+
+**Resource discovery — `resources/list`:**
+
+The adapter calls `list-resources(config)` and maps each `resource-info` to an MCP resource:
+
+| ACT `resource-info` | MCP `Resource` |
+|---|---|
+| `uri` | `uri` |
+| `description` | `name` (resolved to single language) |
+| `mime-type` | `mimeType` |
+
+**Resource retrieval — `resources/read`:**
+
+The adapter calls `get-resource(config, uri)`, reads the byte stream, and returns the content as MCP resource content.
+
 ---
 
 ## 3. HTTP Transport Binding
@@ -235,6 +270,9 @@ When an ACT host exposes components over HTTP, the adapter translates between th
 - `POST /tools/{name}` → `call-tool(config, call)`, with JSON arguments converted to dCBOR bytes.
 - Config from request body (`config` field) or `X-ACT-Config` header (base64-encoded JSON, fallback for GET) is decoded and converted to dCBOR before passing to the component.
 - Response-level `metadata` from `list-tools-response` and `call-response` MAY be mapped to HTTP response headers with an `X-ACT-Meta-` prefix.
+- `GET /events` → `subscribe(config)`, returns an SSE stream of events.
+- `GET /resources` → `list-resources(config)`, returns resource metadata.
+- `GET /resources/{uri}` → `get-resource(config, uri)`, returns resource content.
 - Cancellation: client closes the HTTP connection → adapter drops the ACT stream handle (Section 4.4 of ACT-SPEC).
 
 ---
@@ -251,6 +289,8 @@ A conformant MCP transport adapter:
 - MUST map `tool-definition.metadata` keys `std:read-only`, `std:idempotent`, `std:destructive` to MCP annotation hints.
 - MUST map `tool-error.kind` values with `std:` prefix to MCP error codes as defined in Section 2.4.
 - MUST propagate MCP cancellation to ACT stream handle drops.
+- MUST map `std:tools:changed` events to `notifications/tools/list_changed` if the component exports `event-provider`.
+- MUST map `resource-provider` to MCP `resources/list` and `resources/read` if the component exports `resource-provider`.
 
 ### 4.2 Conformant HTTP Adapter
 
