@@ -1,6 +1,6 @@
 # ACT HTTP API
 
-**Version 0.1.2 (Draft)**
+**Version 0.1.3 (Draft)**
 
 A stateless HTTP API for discovering and invoking tools. Any HTTP server that conforms to this specification is a valid implementation — no WebAssembly runtime or specific programming language is required.
 
@@ -124,6 +124,9 @@ Returned by the info endpoint.
 | `GET` | `/tools` | List tools (config via `X-ACT-Config` header) |
 | `QUERY` | `/tools` | List tools (config in request body) |
 | `POST` | `/tools/{name}` | Invoke a tool |
+| `GET` | `/events` | Subscribe to server events (SSE) |
+| `GET` | `/resources` | List available resources |
+| `GET` | `/resources/{uri}` | Get a resource |
 
 `QUERY` is defined in [draft-ietf-httpbis-safe-method-w-body](https://datatracker.ietf.org/doc/draft-ietf-httpbis-safe-method-w-body/). It is a safe, idempotent method that accepts a request body — ideal for passing config without header encoding. Servers SHOULD support `QUERY` when possible; `GET` with the `X-ACT-Config` header is the fallback for clients or intermediaries that do not support `QUERY`.
 
@@ -139,6 +142,9 @@ When a host serves multiple tool servers, paths are prefixed with the server nam
 | `GET` | `/components/{component}/tools` | List tools (config via header) |
 | `QUERY` | `/components/{component}/tools` | List tools (config in body) |
 | `POST` | `/components/{component}/tools/{name}` | Invoke a tool |
+| `GET` | `/components/{component}/events` | Subscribe to server events (SSE) |
+| `GET` | `/components/{component}/resources` | List available resources |
+| `GET` | `/components/{component}/resources/{uri}` | Get a resource |
 
 ---
 
@@ -324,6 +330,85 @@ data: {"kind": "std:internal", "message": "Connection lost"}
 
 The `error` and `done` events are terminal — the stream closes after either.
 
+### 4.5 Event Subscription — `GET /events`
+
+Opens a Server-Sent Events stream for push notifications from the server.
+
+Config is passed via the `X-ACT-Config` header (base64-encoded JSON) if needed.
+
+```
+GET /events
+Accept: text/event-stream
+X-ACT-Config: eyJhcGlfa2V5IjoiYWJjMTIzIn0=
+
+200 OK
+Content-Type: text/event-stream
+
+event: std:tools:changed
+data: {}
+
+event: acme:order_updated
+data: {"order_id": "123"}
+```
+
+Each SSE event has:
+- `event:` — the event kind (e.g. `std:tools:changed`)
+- `data:` — JSON-encoded payload (or `{}` for events with no payload)
+
+The stream stays open until the client closes the connection. The server SHOULD release resources promptly when the client disconnects.
+
+Servers that do not support events return `404 Not Found`.
+
+### 4.6 Resource Listing — `GET /resources`
+
+Returns the list of available resources.
+
+Config is passed via the `X-ACT-Config` header if needed.
+
+```
+GET /resources
+Accept-Language: en
+
+200 OK
+Content-Type: application/json
+
+{
+  "resources": [
+    {
+      "uri": "std:icon",
+      "mime_type": "image/png",
+      "description": "Component icon"
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `uri` | string | Resource identifier. |
+| `mime_type` | string or null | Expected MIME type. |
+| `description` | string | Human-readable description (resolved to requested language). |
+| `metadata` | object | Optional key-value metadata. |
+
+### 4.7 Resource Retrieval — `GET /resources/{uri}`
+
+Returns a resource as raw bytes.
+
+Config is passed via the `X-ACT-Config` header if needed.
+
+```
+GET /resources/std:icon
+
+200 OK
+Content-Type: image/png
+
+<binary PNG data>
+```
+
+The `Content-Type` header reflects the actual MIME type of the resource. Resource metadata MAY be returned as `X-ACT-Meta-*` headers.
+
+If the resource does not exist, the server returns `404 Not Found`.
+
 ---
 
 ## 5. Configuration
@@ -488,6 +573,8 @@ A conformant ACT HTTP server:
 - SHOULD implement `GET /config-schema` if the server requires configuration.
 - SHOULD support `QUERY /tools` with config in request body.
 - SHOULD support SSE streaming via `Accept: text/event-stream`.
+- SHOULD implement `GET /events` if the server supports push notifications.
+- SHOULD implement `GET /resources` and `GET /resources/{uri}` if the server provides resources.
 
 ---
 
