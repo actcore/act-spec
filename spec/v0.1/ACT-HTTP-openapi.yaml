@@ -390,16 +390,11 @@ components:
     ServerInfo:
       type: object
       required:
-        - protocol_version
         - name
         - version
         - description
         - default_language
       properties:
-        protocol_version:
-          type: string
-          description: ACT-HTTP protocol version (SemVer major.minor).
-          example: "0.1"
         name:
           type: string
           description: Server name.

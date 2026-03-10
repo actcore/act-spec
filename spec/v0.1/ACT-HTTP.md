@@ -95,7 +95,6 @@ Returned by the info endpoint.
 
 ```json
 {
-  "protocol_version": "0.1",
   "name": "weather-tools",
   "version": "1.2.0",
   "description": "Weather data tools",
@@ -105,7 +104,6 @@ Returned by the info endpoint.
 
 | Field | Type | Description |
 |---|---|---|
-| `protocol_version` | string | ACT-HTTP protocol version (SemVer major.minor). |
 | `name` | string | Server/component name. |
 | `version` | string | Server/component SemVer version string. |
 | `description` | string | Human-readable description (resolved to requested language). |
@@ -569,10 +567,6 @@ Version compatibility follows standard SemVer semantics:
      ```
 3. If the client omits the header, the server uses its current version and includes it in the response header. The client SHOULD check the response header and verify compatibility.
 
-### 11.4 Discovery
-
-The `GET /info` response includes `protocol_version` for clients that discover the server's version before making other requests.
-
 ---
 
 ## 12. Conformance
@@ -583,7 +577,6 @@ A conformant ACT HTTP server:
 - MUST support `QUERY /tools/{name}` for tools that declare both `std:read-only` and `std:idempotent`.
 - MUST include the `ACT-Protocol-Version` header in every response.
 - MUST return `406 Not Acceptable` when the client requests an incompatible protocol version.
-- MUST include `protocol_version` in the `GET /info` response.
 - MUST support `application/json` content type.
 - MUST support `Accept-Language` for localization.
 - MUST return tool definitions with valid JSON Schema in `parameters_schema`.

@@ -1,6 +1,6 @@
 # ACT: Agent Component Tools
 
-**Protocol Specification — Version 0.1.3 (Draft)**
+**Protocol Specification — Version 0.1.5 (Draft)**
 
 ---
 
@@ -63,7 +63,7 @@ CBOR examples use CBOR diagnostic notation (RFC 8949 §8).
 ### 3.1 Package
 
 ```wit
-package act:core@0.1.3;
+package act:core@0.1.5;
 ```
 
 ### 3.2 Types Interface
@@ -71,11 +71,16 @@ package act:core@0.1.3;
 ```wit
 interface types {
 
-  /// A localized string is a list of (language-tag, text) pairs.
-  /// Language tags follow BCP 47 (e.g. "en", "ru", "zh-Hans").
-  /// Every localized-string MUST include an entry for the component's default language
-  /// (declared in component-info.default-language).
-  type localized-string = list<tuple<string, string>>;
+  /// A localizable text value.
+  ///
+  /// - `plain` — a single string assumed to be in the component's `default-language`.
+  ///   Use this when localization is not needed.
+  /// - `localized` — a list of (BCP 47 language-tag, text) pairs.
+  ///   MUST include an entry for `component-info.default-language`.
+  variant localized-string {
+    plain(string),
+    localized(list<tuple<string, string>>),
+  }
 
   /// Key-value metadata. Keys are namespaced strings, values are CBOR-encoded.
   /// Components produce valid CBOR; the host canonicalizes to dCBOR if needed.
@@ -393,13 +398,18 @@ If the component exports `resource-provider`:
 
 Each component declares a default language in `component-info.default-language` (a BCP 47 tag). This is the language the component author writes in natively.
 
-Every `localized-string` value produced by the component MUST include an entry matching `default-language`. This guarantees that at least one localization is always present for every string.
+The `localized-string` type is a variant with two cases:
+
+- **`plain(string)`** — a single string assumed to be in the component's `default-language`. Use this when localization is not needed (the common case).
+- **`localized(list<tuple<string, string>>)`** — a list of `(language-tag, text)` pairs. MUST include an entry matching `default-language`.
+
+This design lets components that don't need localization simply return a string, while components that do can provide multiple translations.
 
 ### 5.2 Localized Strings
 
-All human-readable text intended for agents or end users is represented as `localized-string` — a list of `(language-tag, text)` tuples.
+All human-readable text intended for agents or end users is represented as `localized-string`.
 
-- Every `localized-string` MUST include an entry for the component's `default-language`.
+- When using `localized`, the component MUST include an entry for the component's `default-language`.
 - Components MAY provide additional entries for any number of languages.
 - Language tags MUST conform to BCP 47.
 
@@ -407,6 +417,10 @@ All human-readable text intended for agents or end users is represented as `loca
 
 When a transport adapter needs a single-language string (e.g. for an MCP response):
 
+For `plain(text)`:
+1. Use `text` directly — it is assumed to be in `default-language`.
+
+For `localized(entries)`:
 1. Match the client's preferred language exactly.
 2. Match by prefix (e.g. `"zh"` matches `"zh-Hans"`).
 3. Fall back to the component's `default-language`.
@@ -630,7 +644,7 @@ Hosts MUST NOT reject `tool-error` values with unrecognized `kind` strings. Unkn
 A conformant ACT component:
 - MUST export the `act-world` world as defined in Section 3.4.
 - MUST return valid `component-info` from `get-info()`, including a valid BCP 47 `default-language`.
-- MUST include the `default-language` entry in every `localized-string` it produces.
+- MUST include the `default-language` entry in every `localized-string::localized` it produces. `localized-string::plain` is assumed to be in `default-language`.
 - MUST return valid `tool-definition` records from `list-tools()`.
 - MUST accept any `tool-call` whose `arguments` conform to the declared schemas (encoded as dCBOR).
 - MUST produce a well-formed `stream<stream-event>` from `call-tool()`.
@@ -656,20 +670,25 @@ A conformant ACT host:
 
 ## Appendix A: Complete WIT
 
-The WIT is split across three files in three packages: `act:core@0.1.3`, `act:events@0.1.3`, and `act:resources@0.1.3`. The events and resources packages depend on `act:core/types`.
+The WIT is split across three files in three packages: `act:core@0.1.5`, `act:events@0.1.3`, and `act:resources@0.1.3`. The events and resources packages depend on `act:core/types`.
 
 **`wit/act-core.wit`** — types, tool-provider, and world:
 
 ```wit
-package act:core@0.1.3;
+package act:core@0.1.5;
 
 interface types {
 
-  /// A localized string is a list of (language-tag, text) pairs.
-  /// Language tags follow BCP 47 (e.g. "en", "ru", "zh-Hans").
-  /// Every localized-string MUST include an entry for the component's default language
-  /// (declared in component-info.default-language).
-  type localized-string = list<tuple<string, string>>;
+  /// A localizable text value.
+  ///
+  /// - `plain` — a single string assumed to be in the component's `default-language`.
+  ///   Use this when localization is not needed.
+  /// - `localized` — a list of (BCP 47 language-tag, text) pairs.
+  ///   MUST include an entry for `component-info.default-language`.
+  variant localized-string {
+    plain(string),
+    localized(list<tuple<string, string>>),
+  }
 
   /// Key-value metadata. Keys are namespaced strings, values are CBOR-encoded.
   /// Components produce valid CBOR; the host canonicalizes to dCBOR if needed.
