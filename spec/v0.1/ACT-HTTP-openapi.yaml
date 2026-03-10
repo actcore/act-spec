@@ -1,12 +1,14 @@
 openapi: 3.2.0
 info:
   title: ACT HTTP API
-  version: 0.1.3
+  version: 0.1.4
   description: |
     A stateless HTTP API for discovering and invoking tools.
     Any HTTP server that conforms to this specification is a valid implementation.
 
-    This specification is HTTP version agnostic — it works over HTTP/1.1, HTTP/2, or HTTP/3.
+    Config is always passed in the request body — there are no config-related headers.
+    Every endpoint that accepts config supports both `POST` and `QUERY` with identical
+    request/response formats. `QUERY` is safe and cacheable; `POST` is the universal fallback.
 
     See ACT-HTTP.md for the full prose specification.
   license:
@@ -47,16 +49,19 @@ paths:
           description: Server does not require configuration.
 
   /tools:
-    get:
+    post:
       operationId: listTools
-      summary: List tools (GET fallback)
+      summary: List tools
       description: |
-        Returns the list of available tools.
-        Config is passed via the `X-ACT-Config` header (base64-encoded JSON).
-        Use `QUERY /tools` when possible to pass config in the request body instead.
+        Returns the list of available tools. Config is passed in the request body.
       parameters:
         - $ref: "#/components/parameters/AcceptLanguage"
-        - $ref: "#/components/parameters/XActConfig"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfigRequest"
       responses:
         "200":
           description: Tool list.
@@ -70,13 +75,10 @@ paths:
           $ref: "#/components/responses/InternalError"
     query:
       operationId: queryTools
-      summary: List tools (preferred)
+      summary: List tools (safe, cacheable)
       description: |
-        Returns the list of available tools.
-        Config is passed in the request body as JSON.
-
-        `QUERY` is defined in draft-ietf-httpbis-safe-method-w-body.
-        It is a safe, idempotent method that accepts a request body.
+        Returns the list of available tools. Identical to `POST /tools` but uses the
+        `QUERY` method (draft-ietf-httpbis-safe-method-w-body), which is safe and idempotent.
       parameters:
         - $ref: "#/components/parameters/AcceptLanguage"
       requestBody:
@@ -97,79 +99,6 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
-  /events:
-    get:
-      operationId: subscribeEvents
-      summary: Subscribe to server events
-      description: |
-        Opens a Server-Sent Events stream for push notifications.
-        The stream stays open until the client disconnects.
-
-        Servers that do not support events return 404.
-      parameters:
-        - $ref: "#/components/parameters/XActConfig"
-      responses:
-        "200":
-          description: SSE event stream.
-          content:
-            text/event-stream:
-              schema:
-                type: string
-                description: |
-                  SSE stream with event kinds as event types:
-                  - `event: std:tools:changed` — tool list changed
-                  - `event: std:resources:changed` — resource list changed
-                  - `event: std:events:changed` — event type list changed
-                  - `event: <custom>` — custom event kind
-                  Data is a JSON object (or `{}` for events with no payload).
-        "404":
-          $ref: "#/components/responses/NotFound"
-
-  /resources:
-    get:
-      operationId: listResources
-      summary: List available resources
-      description: Returns the list of resources available from this server.
-      parameters:
-        - $ref: "#/components/parameters/AcceptLanguage"
-        - $ref: "#/components/parameters/XActConfig"
-      responses:
-        "200":
-          description: Resource list.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ListResourcesResponse"
-        "500":
-          $ref: "#/components/responses/InternalError"
-
-  /resources/{uri}:
-    get:
-      operationId: getResource
-      summary: Get a resource
-      description: |
-        Returns a resource as raw bytes with the appropriate Content-Type header.
-      parameters:
-        - name: uri
-          in: path
-          required: true
-          description: Resource URI as returned by `GET /resources`.
-          schema:
-            type: string
-        - $ref: "#/components/parameters/XActConfig"
-      responses:
-        "200":
-          description: Resource content.
-          content:
-            application/octet-stream:
-              schema:
-                type: string
-                format: binary
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "500":
-          $ref: "#/components/responses/InternalError"
-
   /tools/{name}:
     post:
       operationId: callTool
@@ -182,14 +111,11 @@ paths:
         - `text/event-stream` — the server streams results as Server-Sent Events (SSE).
 
         The server MUST NOT stream SSE unless the client explicitly requests it via `Accept: text/event-stream`.
-
-        Tools that produce results incrementally declare `std:streaming: true` in their metadata.
-        Clients can use this hint to decide whether to request SSE, but the hint is advisory.
       parameters:
         - name: name
           in: path
           required: true
-          description: Tool name as returned by `GET /tools`.
+          description: Tool name as returned by list-tools.
           schema:
             type: string
         - $ref: "#/components/parameters/AcceptLanguage"
@@ -226,6 +152,216 @@ paths:
           $ref: "#/components/responses/InternalError"
         "504":
           $ref: "#/components/responses/Timeout"
+    query:
+      operationId: queryTool
+      summary: Invoke a read-only, idempotent tool (safe, cacheable)
+      description: |
+        Invokes a tool using the `QUERY` method. Only available for tools that declare
+        both `std:read-only: true` and `std:idempotent: true` in their metadata.
+
+        The server MUST return `405 Method Not Allowed` for tools that are not both
+        read-only and idempotent.
+
+        Request and response formats are identical to `POST /tools/{name}`.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: Tool name as returned by list-tools.
+          schema:
+            type: string
+        - $ref: "#/components/parameters/AcceptLanguage"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ToolCallRequest"
+      responses:
+        "200":
+          description: |
+            Tool result. Content-Type is `application/json` for non-streaming
+            or `text/event-stream` for streaming responses.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ToolCallResponse"
+            text/event-stream:
+              schema:
+                type: string
+                description: |
+                  SSE stream with the following event types:
+                  - `event: content` — a content part (data is a ContentPart JSON object).
+                  - `event: error` — a terminal error (data is a ToolError JSON object).
+                  - `event: done` — stream complete (data is `{}`).
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          description: Tool is not both read-only and idempotent.
+        "422":
+          $ref: "#/components/responses/InvalidArgs"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "504":
+          $ref: "#/components/responses/Timeout"
+
+  /events:
+    post:
+      operationId: subscribeEvents
+      summary: Subscribe to server events
+      description: |
+        Opens a Server-Sent Events stream for push notifications.
+        Config is passed in the request body.
+        The stream stays open until the client disconnects.
+        Servers that do not support events return 404.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfigRequest"
+      responses:
+        "200":
+          description: SSE event stream.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: |
+                  SSE stream with event kinds as event types:
+                  - `event: std:tools:changed` — tool list changed
+                  - `event: std:resources:changed` — resource list changed
+                  - `event: std:events:changed` — event type list changed
+                  - `event: <custom>` — custom event kind
+                  Data is a JSON object (or `{}` for events with no payload).
+        "404":
+          $ref: "#/components/responses/NotFound"
+    query:
+      operationId: queryEvents
+      summary: Subscribe to server events (safe)
+      description: |
+        Identical to `POST /events` but uses the `QUERY` method.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfigRequest"
+      responses:
+        "200":
+          description: SSE event stream.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /resources:
+    post:
+      operationId: listResources
+      summary: List available resources
+      description: Returns the list of resources available from this server. Config is passed in the request body.
+      parameters:
+        - $ref: "#/components/parameters/AcceptLanguage"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfigRequest"
+      responses:
+        "200":
+          description: Resource list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListResourcesResponse"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    query:
+      operationId: queryResources
+      summary: List available resources (safe, cacheable)
+      description: Identical to `POST /resources` but uses the `QUERY` method.
+      parameters:
+        - $ref: "#/components/parameters/AcceptLanguage"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfigRequest"
+      responses:
+        "200":
+          description: Resource list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListResourcesResponse"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /resources/{uri}:
+    post:
+      operationId: getResource
+      summary: Get a resource
+      description: Returns a resource as raw bytes with the appropriate Content-Type header. Config is passed in the request body.
+      parameters:
+        - name: uri
+          in: path
+          required: true
+          description: Resource URI as returned by list-resources.
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfigRequest"
+      responses:
+        "200":
+          description: Resource content.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    query:
+      operationId: queryResource
+      summary: Get a resource (safe, cacheable)
+      description: Identical to `POST /resources/{uri}` but uses the `QUERY` method.
+      parameters:
+        - name: uri
+          in: path
+          required: true
+          description: Resource URI as returned by list-resources.
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfigRequest"
+      responses:
+        "200":
+          description: Resource content.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
 
 components:
   parameters:
@@ -238,26 +374,32 @@ components:
         type: string
         example: en
 
-    XActConfig:
-      name: X-ACT-Config
+    ActProtocolVersion:
+      name: ACT-Protocol-Version
       in: header
       required: false
       description: |
-        Base64-encoded JSON configuration. Used as a fallback for GET requests
-        when the QUERY method is not available.
+        ACT-HTTP protocol version (SemVer major.minor).
+        Client sends its maximum supported version; server responds with the effective version.
+        Incompatible versions result in 406 Not Acceptable.
       schema:
         type: string
-        example: eyJhcGlfa2V5IjoiYWJjMTIzIn0=
+        example: "0.1"
 
   schemas:
     ServerInfo:
       type: object
       required:
+        - protocol_version
         - name
         - version
         - description
         - default_language
       properties:
+        protocol_version:
+          type: string
+          description: ACT-HTTP protocol version (SemVer major.minor).
+          example: "0.1"
         name:
           type: string
           description: Server name.
@@ -376,13 +518,8 @@ components:
     ToolCallRequest:
       type: object
       required:
-        - id
         - arguments
       properties:
-        id:
-          type: string
-          description: Caller-assigned identifier for correlation.
-          example: call-1
         arguments:
           type: object
           description: Tool arguments conforming to the tool's `parameters_schema`.
@@ -393,13 +530,8 @@ components:
     ToolCallResponse:
       type: object
       required:
-        - id
         - content
       properties:
-        id:
-          type: string
-          description: Echoed caller-assigned identifier.
-          example: call-1
         content:
           type: array
           items:

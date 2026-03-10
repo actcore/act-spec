@@ -1,6 +1,6 @@
 # ACT HTTP API
 
-**Version 0.1.3 (Draft)**
+**Protocol Version 0.1 (Draft)**
 
 A stateless HTTP API for discovering and invoking tools. Any HTTP server that conforms to this specification is a valid implementation — no WebAssembly runtime or specific programming language is required.
 
@@ -95,6 +95,7 @@ Returned by the info endpoint.
 
 ```json
 {
+  "protocol_version": "0.1",
   "name": "weather-tools",
   "version": "1.2.0",
   "description": "Weather data tools",
@@ -104,8 +105,9 @@ Returned by the info endpoint.
 
 | Field | Type | Description |
 |---|---|---|
+| `protocol_version` | string | ACT-HTTP protocol version (SemVer major.minor). |
 | `name` | string | Server/component name. |
-| `version` | string | SemVer version string. |
+| `version` | string | Server/component SemVer version string. |
 | `description` | string | Human-readable description (resolved to requested language). |
 | `default_language` | string | BCP 47 language tag for the server's default language. |
 | `capabilities` | array | Optional list of capabilities the server requires (see Section 8). |
@@ -115,36 +117,28 @@ Returned by the info endpoint.
 
 ## 3. Endpoints
 
-### 3.1 Single-Server Endpoints
+An ACT HTTP server exposes a single set of tools. Hosting multiple components behind one HTTP endpoint is an implementation concern of the host, not part of this specification.
 
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/info` | Server metadata |
 | `GET` | `/config-schema` | Config JSON Schema (or `204 No Content` if none) |
-| `GET` | `/tools` | List tools (config via `X-ACT-Config` header) |
-| `QUERY` | `/tools` | List tools (config in request body) |
+| `POST` | `/tools` | List tools (config in request body) |
+| `QUERY` | `/tools` | List tools (config in request body; safe, cacheable) |
 | `POST` | `/tools/{name}` | Invoke a tool |
-| `GET` | `/events` | Subscribe to server events (SSE) |
-| `GET` | `/resources` | List available resources |
-| `GET` | `/resources/{uri}` | Get a resource |
+| `QUERY` | `/tools/{name}` | Invoke a read-only, idempotent tool (safe, cacheable) |
+| `POST` | `/events` | Subscribe to server events (SSE, config in body) |
+| `QUERY` | `/events` | Subscribe to server events (SSE, config in body; safe) |
+| `POST` | `/resources` | List available resources (config in body) |
+| `QUERY` | `/resources` | List available resources (config in body; safe) |
+| `POST` | `/resources/{uri}` | Get a resource (config in body) |
+| `QUERY` | `/resources/{uri}` | Get a resource (config in body; safe) |
 
-`QUERY` is defined in [draft-ietf-httpbis-safe-method-w-body](https://datatracker.ietf.org/doc/draft-ietf-httpbis-safe-method-w-body/). It is a safe, idempotent method that accepts a request body — ideal for passing config without header encoding. Servers SHOULD support `QUERY` when possible; `GET` with the `X-ACT-Config` header is the fallback for clients or intermediaries that do not support `QUERY`.
+Config is always passed in the request body. There are no config-related headers.
 
-### 3.2 Multi-Server Endpoints
+`QUERY` is defined in [draft-ietf-httpbis-safe-method-w-body](https://datatracker.ietf.org/doc/draft-ietf-httpbis-safe-method-w-body/). It is a safe, idempotent method that accepts a request body. Every endpoint that accepts config supports both `POST` and `QUERY` with identical request/response formats. `POST` is the universal fallback for clients or intermediaries that do not support `QUERY`. `QUERY` enables HTTP caching and signals that the operation is safe.
 
-When a host serves multiple tool servers, paths are prefixed with the server name:
-
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/components` | List available servers |
-| `GET` | `/components/{component}/info` | Server metadata |
-| `GET` | `/components/{component}/config-schema` | Config schema |
-| `GET` | `/components/{component}/tools` | List tools (config via header) |
-| `QUERY` | `/components/{component}/tools` | List tools (config in body) |
-| `POST` | `/components/{component}/tools/{name}` | Invoke a tool |
-| `GET` | `/components/{component}/events` | Subscribe to server events (SSE) |
-| `GET` | `/components/{component}/resources` | List available resources |
-| `GET` | `/components/{component}/resources/{uri}` | Get a resource |
+Servers MUST support `QUERY /tools/{name}` for tools that declare both `std:read-only` and `std:idempotent` in their metadata. The server MUST reject `QUERY /tools/{name}` for tools that are not both read-only and idempotent, returning `405 Method Not Allowed`.
 
 ---
 
@@ -188,11 +182,9 @@ Content-Type: application/json
 }
 ```
 
-### 4.3 Tool Discovery — `GET /tools` or `QUERY /tools`
+### 4.3 Tool Discovery — `POST /tools` or `QUERY /tools`
 
-Returns the list of available tools.
-
-**With `QUERY` (preferred when config is needed):**
+Returns the list of available tools. Both `POST` and `QUERY` accept the same request body. Use `QUERY` when available (safe, cacheable); `POST` is the universal fallback.
 
 ```
 QUERY /tools
@@ -226,28 +218,13 @@ Content-Type: application/json
 }
 ```
 
-**With `GET` (fallback):**
+For servers that do not require config, the `config` field is omitted (or the body may be empty).
 
-```
-GET /tools
-X-ACT-Config: eyJhcGlfa2V5IjoiYWJjMTIzIn0=
-Accept-Language: en
-
-200 OK
-Content-Type: application/json
-
-{
-  "tools": [ ... ]
-}
-```
-
-The `X-ACT-Config` header value is base64-encoded JSON. For servers that do not require config, both `GET /tools` and `QUERY /tools` (without a body) are equivalent.
-
-The response MAY include a top-level `metadata` object with server-defined key-value pairs. Metadata values MAY also be returned as HTTP response headers with an `X-ACT-Meta-` prefix.
+The response MAY include a top-level `metadata` object with server-defined key-value pairs.
 
 On error, the server returns the appropriate HTTP status code (see Section 6).
 
-### 4.4 Tool Invocation — `POST /tools/{name}`
+### 4.4 Tool Invocation — `POST /tools/{name}` or `QUERY /tools/{name}`
 
 Invokes a tool and returns the result.
 
@@ -269,6 +246,12 @@ Content-Type: application/json
 | `id` | string | Caller-assigned identifier for correlation. |
 | `arguments` | object | Tool arguments conforming to `parameters_schema`. |
 | `config` | object | Optional configuration matching the config schema. |
+
+**`QUERY` method for read-only idempotent tools:**
+
+Tools that declare both `std:read-only: true` and `std:idempotent: true` in their metadata MAY also be invoked via `QUERY /tools/{name}`. The request body is identical to `POST`. Because `QUERY` is safe and idempotent, responses are cacheable by HTTP intermediaries.
+
+The server MUST return `405 Method Not Allowed` if a client sends `QUERY` to a tool that is not both read-only and idempotent.
 
 **Response (non-streaming):**
 
@@ -330,16 +313,16 @@ data: {"kind": "std:internal", "message": "Connection lost"}
 
 The `error` and `done` events are terminal — the stream closes after either.
 
-### 4.5 Event Subscription — `GET /events`
+### 4.5 Event Subscription — `POST /events` or `QUERY /events`
 
-Opens a Server-Sent Events stream for push notifications from the server.
-
-Config is passed via the `X-ACT-Config` header (base64-encoded JSON) if needed.
+Opens a Server-Sent Events stream for push notifications from the server. Config is passed in the request body.
 
 ```
-GET /events
+QUERY /events
+Content-Type: application/json
 Accept: text/event-stream
-X-ACT-Config: eyJhcGlfa2V5IjoiYWJjMTIzIn0=
+
+{"config": {"api_key": "abc123"}}
 
 200 OK
 Content-Type: text/event-stream
@@ -359,15 +342,16 @@ The stream stays open until the client closes the connection. The server SHOULD 
 
 Servers that do not support events return `404 Not Found`.
 
-### 4.6 Resource Listing — `GET /resources`
+### 4.6 Resource Listing — `POST /resources` or `QUERY /resources`
 
-Returns the list of available resources.
-
-Config is passed via the `X-ACT-Config` header if needed.
+Returns the list of available resources. Config is passed in the request body.
 
 ```
-GET /resources
+QUERY /resources
+Content-Type: application/json
 Accept-Language: en
+
+{}
 
 200 OK
 Content-Type: application/json
@@ -390,14 +374,15 @@ Content-Type: application/json
 | `description` | string | Human-readable description (resolved to requested language). |
 | `metadata` | object | Optional key-value metadata. |
 
-### 4.7 Resource Retrieval — `GET /resources/{uri}`
+### 4.7 Resource Retrieval — `POST /resources/{uri}` or `QUERY /resources/{uri}`
 
-Returns a resource as raw bytes.
-
-Config is passed via the `X-ACT-Config` header if needed.
+Returns a resource as raw bytes. Config is passed in the request body.
 
 ```
-GET /resources/std:icon
+QUERY /resources/std:icon
+Content-Type: application/json
+
+{}
 
 200 OK
 Content-Type: image/png
@@ -405,7 +390,7 @@ Content-Type: image/png
 <binary PNG data>
 ```
 
-The `Content-Type` header reflects the actual MIME type of the resource. Resource metadata MAY be returned as `X-ACT-Meta-*` headers.
+The `Content-Type` header of the response reflects the actual MIME type of the resource.
 
 If the resource does not exist, the server returns `404 Not Found`.
 
@@ -417,15 +402,7 @@ Servers that require per-request context (API keys, endpoint URLs, user preferen
 
 ### 5.1 Config Delivery
 
-Config delivery depends on the HTTP method:
-
-| Method | Config mechanism |
-|---|---|
-| `QUERY` | `config` field in request body (JSON) |
-| `POST` | `config` field in request body (JSON) |
-| `GET` | `X-ACT-Config` header (base64-encoded JSON) |
-
-**Request body (preferred):**
+Config is always passed as a `config` field in the JSON request body:
 
 ```json
 {
@@ -433,13 +410,7 @@ Config delivery depends on the HTTP method:
 }
 ```
 
-**Header (fallback for `GET`):**
-
-```
-X-ACT-Config: eyJhcGlfa2V5IjoiYWJjMTIzIn0=
-```
-
-For servers that do not require config (`GET /config-schema` returns `204`), config is omitted.
+Both `POST` and `QUERY` use the same request body format. For servers that do not require config (`GET /config-schema` returns `204`), the `config` field is omitted.
 
 ---
 
@@ -559,26 +530,72 @@ The client cancels a streaming request by closing the HTTP connection. The serve
 
 ---
 
-## 11. Conformance
+## 11. Protocol Version Negotiation
+
+The ACT-HTTP protocol is versioned using SemVer `major.minor`. Patch versions are not used — patch-level changes do not affect the wire format.
+
+### 11.1 Version Header
+
+Every request SHOULD include:
+
+```
+ACT-Protocol-Version: 0.1
+```
+
+Every response MUST include:
+
+```
+ACT-Protocol-Version: 0.1
+```
+
+The server's response header indicates the protocol version it is actually using for this response.
+
+### 11.2 Compatibility Rules
+
+Version compatibility follows standard SemVer semantics:
+
+- **major=0 (unstable):** exact `major.minor` match required. `0.1` and `0.2` are incompatible.
+- **major≥1 (stable):** same major version is compatible. A server at `1.5` can serve a client at `1.2` — the effective protocol version is `min(server, client)` within the same major.
+- **Different major versions** are always incompatible.
+
+### 11.3 Negotiation Flow
+
+1. Client sends `ACT-Protocol-Version` header with its maximum supported version.
+2. Server checks compatibility:
+   - **Compatible:** responds normally with its effective version in the `ACT-Protocol-Version` response header.
+   - **Incompatible:** responds with `406 Not Acceptable` and a JSON body listing supported versions:
+     ```json
+     {"supported_versions": ["0.1"]}
+     ```
+3. If the client omits the header, the server uses its current version and includes it in the response header. The client SHOULD check the response header and verify compatibility.
+
+### 11.4 Discovery
+
+The `GET /info` response includes `protocol_version` for clients that discover the server's version before making other requests.
+
+---
+
+## 12. Conformance
 
 A conformant ACT HTTP server:
-- MUST implement `GET /info`, `GET /tools`, and `POST /tools/{name}`.
+- MUST implement `GET /info`, `GET /config-schema`, `POST /tools`, `QUERY /tools`, and `POST /tools/{name}`.
+- MUST support both `POST` and `QUERY` for every endpoint that accepts configuration (`/tools`, `/events`, `/resources`, `/resources/{uri}`).
+- MUST support `QUERY /tools/{name}` for tools that declare both `std:read-only` and `std:idempotent`.
+- MUST include the `ACT-Protocol-Version` header in every response.
+- MUST return `406 Not Acceptable` when the client requests an incompatible protocol version.
+- MUST include `protocol_version` in the `GET /info` response.
 - MUST support `application/json` content type.
 - MUST support `Accept-Language` for localization.
 - MUST return tool definitions with valid JSON Schema in `parameters_schema`.
 - MUST validate tool arguments against declared schemas before execution.
 - MUST map well-known error kinds (`std:*`) to HTTP status codes as defined in Section 6.1.
-- MUST support config in `POST` request body (`config` field) if the server requires configuration.
-- MUST support config via `X-ACT-Config` header for `GET /tools` if the server requires configuration.
-- SHOULD implement `GET /config-schema` if the server requires configuration.
-- SHOULD support `QUERY /tools` with config in request body.
 - SHOULD support SSE streaming via `Accept: text/event-stream`.
-- SHOULD implement `GET /events` if the server supports push notifications.
-- SHOULD implement `GET /resources` and `GET /resources/{uri}` if the server provides resources.
+- SHOULD implement `/events` if the server supports push notifications.
+- SHOULD implement `/resources` and `/resources/{uri}` if the server provides resources.
 
 ---
 
-## 12. Relationship to ACT Component Model
+## 13. Relationship to ACT Component Model
 
 This HTTP API is one of several transport bindings defined by the ACT (Agent Component Tools) specification. The full ACT specification (`ACT-SPEC.md`) defines a WebAssembly Component Model contract that can be exposed over this HTTP API, MCP, or other transports.
 
