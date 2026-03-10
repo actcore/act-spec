@@ -1,4 +1,4 @@
-package act:core@0.1.3;
+package act:core@0.1.4;
 
 interface types {
 
@@ -66,8 +66,6 @@ interface types {
 
   /// A request to invoke a tool.
   record tool-call {
-    /// Caller-assigned identifier for correlation.
-    id: string,
     /// Tool name, as returned by list-tools.
     name: string,
     /// Deterministically Encoded CBOR arguments (RFC 8949 §4.2).
@@ -78,9 +76,14 @@ interface types {
 
   /// A single piece of content in a tool's result stream.
   record content-part {
-    /// Payload bytes. Interpretation depends on `mime-type`.
+    /// Payload bytes. Interpretation depends on `mime-type`:
+    /// - `text/*` — raw UTF-8 text
+    /// - `application/cbor` — CBOR-encoded structured data
+    /// - `application/json` — JSON
+    /// - `image/*` — binary image data
+    /// - absent or other — opaque bytes (application/octet-stream)
     data: list<u8>,
-    /// MIME type of the data. If absent, defaults to "application/cbor".
+    /// MIME type of the data. If absent, data is treated as opaque bytes.
     mime-type: option<string>,
     metadata: metadata,
   }

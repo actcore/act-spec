@@ -37,8 +37,6 @@ The host validates credentials and MAY enforce per-client access policies (e.g. 
 
 For MCP stdio, the host process is trusted — no additional auth is needed.
 
-For MCP SSE, the same HTTP auth mechanisms apply to the SSE connection.
-
 ### 2.3 OIDC for Component Access
 
 When using OIDC for transport-level auth:

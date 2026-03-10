@@ -363,7 +363,6 @@ Transport adapters map config to the natural mechanism for each transport:
 |-----------|-----------------|
 | HTTP | `config` field in request body or `X-ACT-Config` header |
 | MCP stdio | Process environment or host configuration |
-| MCP SSE | Extensions in `initialize` request |
 
 The host MAY merge config from multiple sources (e.g. server defaults + client-provided values) before passing it to the component.
 
@@ -550,7 +549,7 @@ The following well-known keys are defined for `tool-definition.metadata`. All va
 | `std:examples` | array of bstr | Example tool calls as CBOR-encoded argument maps. |
 | `std:tags` | array of tstr | Categorization tags. |
 | `std:timeout-ms` | uint | Suggested timeout in milliseconds. The host MAY override this. |
-| `std:streaming` | bool | Tool produces results incrementally. Clients MAY use this hint to prefer streaming transports (e.g. SSE). |
+| `std:streaming` | bool | Tool produces results incrementally. Clients MAY use this hint to prefer streaming transports. |
 
 The following well-known keys are defined for `content-part.metadata`:
 

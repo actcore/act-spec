@@ -18,7 +18,7 @@ The MCP `initialize` response should include:
 
 ```json
 {
-  "protocolVersion": "2024-11-05",
+  "protocolVersion": "2025-11-25",
   "serverInfo": {
     "name": "<component-info.name>",
     "version": "<component-info.version>"
