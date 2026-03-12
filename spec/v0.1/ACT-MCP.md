@@ -71,12 +71,11 @@ ACT metadata keys with no MCP equivalent (`std:usage-hints`, `std:anti-usage-hin
 When the MCP client calls `tools/call`:
 
 1. The adapter constructs a `tool-call`:
-   - `id` — from MCP JSON-RPC `id`
    - `name` — from `params.name`
    - `arguments` — `params.arguments` converted from JSON to dCBOR bytes
    - `metadata` — empty (or populated from MCP extensions if applicable)
 2. The adapter calls `call-tool(config, call)` with the cached config.
-3. The adapter receives a `call-response` containing `metadata` and a `body` stream of `stream-event` values.
+3. The adapter receives a `stream<stream-event>` and reads events from it.
 
 **Result mapping (success):**
 
@@ -97,8 +96,9 @@ The adapter reads all `stream-event::content(part)` events from the stream and c
 |---|---|
 | `text/*` | `{ "type": "text", "text": "<data as UTF-8>" }` |
 | `image/*` | `{ "type": "image", "data": "<data as base64>", "mimeType": "<mime-type>" }` |
-| `application/cbor` (or absent) | `{ "type": "text", "text": "<data decoded from CBOR, serialized as JSON>" }` |
-| Other | `{ "type": "text", "text": "<data as base64>" }` (fallback) |
+| `application/cbor` | `{ "type": "text", "text": "<data decoded from CBOR, serialized as JSON>" }` |
+| `application/json` | `{ "type": "text", "text": "<data as UTF-8>" }` |
+| absent or other | `{ "type": "text", "text": "<data as base64>" }` (fallback) |
 
 **Result mapping (error):**
 

@@ -1,6 +1,6 @@
 # ACT: Agent Component Tools
 
-**Protocol Specification — Version 0.1.5 (Draft)**
+**Protocol Specification — Version 0.1.6 (Draft)**
 
 ---
 
@@ -63,7 +63,7 @@ CBOR examples use CBOR diagnostic notation (RFC 8949 §8).
 ### 3.1 Package
 
 ```wit
-package act:core@0.1.5;
+package act:core@0.1.6;
 ```
 
 ### 3.2 Types Interface
@@ -140,8 +140,6 @@ interface types {
 
   /// A request to invoke a tool.
   record tool-call {
-    /// Caller-assigned identifier for correlation.
-    id: string,
     /// Tool name, as returned by list-tools.
     name: string,
     /// Deterministically Encoded CBOR arguments (RFC 8949 §4.2).
@@ -152,9 +150,14 @@ interface types {
 
   /// A single piece of content in a tool's result stream.
   record content-part {
-    /// Payload bytes. Interpretation depends on `mime-type`.
+    /// Payload bytes. Interpretation depends on `mime-type`:
+    /// - `text/*` — raw UTF-8 text
+    /// - `application/cbor` — CBOR-encoded structured data
+    /// - `application/json` — JSON
+    /// - `image/*` — binary image data
+    /// - absent or other — opaque bytes (application/octet-stream)
     data: list<u8>,
-    /// MIME type of the data. If absent, defaults to "application/cbor".
+    /// MIME type of the data. If absent, data is treated as opaque bytes.
     mime-type: option<string>,
     metadata: metadata,
   }
@@ -180,13 +183,6 @@ interface types {
   //  Response wrappers
   // ──────────────────────────────────────────────
 
-  /// Response from call-tool. Metadata is available immediately;
-  /// body is a stream of content and/or a terminal error.
-  record call-response {
-    metadata: metadata,
-    body: stream<stream-event>,
-  }
-
   /// Response from list-tools.
   record list-tools-response {
     metadata: metadata,
@@ -203,7 +199,7 @@ interface tool-provider {
     component-info,
     tool-definition,
     tool-call,
-    call-response,
+    stream-event,
     list-tools-response,
     tool-error,
   };
@@ -222,9 +218,9 @@ interface tool-provider {
   /// Async because bridge components may need to fetch remote schemas.
   list-tools: async func(config: option<list<u8>>) -> result<list-tools-response, tool-error>;
 
-  /// Invokes a tool and returns a response with metadata and a stream of results.
-  /// Metadata is available regardless of whether the call succeeds or fails.
-  call-tool: async func(config: option<list<u8>>, call: tool-call) -> call-response;
+  /// Invokes a tool and returns a stream of results.
+  /// Each stream-event is either content or a terminal error.
+  call-tool: async func(config: option<list<u8>>, call: tool-call) -> stream<stream-event>;
 }
 ```
 
@@ -336,12 +332,12 @@ For components without configuration (`get-config-schema` returns `none`), the h
 
 ### 4.3 Tool Invocation
 
-1. The caller constructs a `tool-call` with a unique `id`, tool `name`, and dCBOR `arguments`.
+1. The caller constructs a `tool-call` with a tool `name` and dCBOR `arguments`. Correlation identifiers (if needed) are a transport-layer concern, not part of the protocol.
 2. The host MUST validate `arguments` (after decoding from CBOR) against the schema declared in `tool-definition.parameters-schema` for the named tool. If validation fails, the host MUST return a `tool-error` with kind `std:invalid-args` without calling the component.
 3. The host MUST validate `config` against the schema from `get-config-schema` if present. If the component requires config and `none` is provided, or if the config does not match the schema, the host MUST return a `tool-error` with kind `std:invalid-args`.
 4. The host MUST ensure `arguments` and `config` are deterministically encoded before passing them to the component.
 5. The host calls `call-tool(config, call)`.
-6. The host receives a `call-response` with response-level `metadata` and a `body` stream. The host reads `stream-event` values from the stream:
+6. The host receives a `stream<stream-event>` and reads events from it:
    - `content(part)` — a piece of result content. There may be zero or more.
    - `error(e)` — a terminal error. The stream ends after this event.
 7. When the stream completes without an `error` event, the call is considered successful.
@@ -477,15 +473,22 @@ This guarantees that:
 
 ### 6.5 Content Data
 
-The `content-part.data` field is `list<u8>` — raw bytes. The `mime-type` field determines how to interpret them. If `mime-type` is absent, it defaults to `"application/cbor"` — structured data encoded as CBOR. Components produce valid CBOR; the host canonicalizes to dCBOR before passing to external consumers.
+The `content-part.data` field is `list<u8>` — raw bytes. The `mime-type` field determines how to interpret them:
+
+- **`text/*`** — raw UTF-8 text.
+- **`application/cbor`** — CBOR-encoded structured data. Components produce valid CBOR; the host canonicalizes to dCBOR before passing to external consumers.
+- **`application/json`** — JSON.
+- **`image/*`** — binary image data.
+- **absent or other** — opaque bytes (`application/octet-stream`).
 
 Common MIME types:
 
 | MIME type | `data` encoding |
 |-----------|-----------------|
-| `application/cbor` | CBOR-encoded structured data (default); host canonicalizes to dCBOR |
 | `text/plain` | UTF-8 encoded text |
 | `text/markdown` | UTF-8 encoded Markdown |
+| `application/cbor` | CBOR-encoded structured data; host canonicalizes to dCBOR |
+| `application/json` | JSON |
 | `image/png` | Raw PNG bytes |
 | `audio/wav` | Raw WAV bytes |
 
@@ -572,7 +575,7 @@ The following well-known keys are defined for `content-part.metadata`:
 | `std:progress` | uint | Number of units completed so far. |
 | `std:progress-total` | uint | Total number of units, if known. |
 
-The following well-known keys may appear on any metadata field (`tool-call.metadata`, `call-response.metadata`, `list-tools-response.metadata`, etc.):
+The following well-known keys may appear on any metadata field (`tool-call.metadata`, `list-tools-response.metadata`, etc.):
 
 | Key | CBOR type | Description |
 |-----|-----------|-------------|
@@ -604,7 +607,7 @@ The following well-known resource URIs are defined:
 Breaking changes to the WIT interfaces are handled through WIT package versioning:
 
 ```
-act:core@0.1.0  ->  act:core@0.1.1  ->  act:core@0.1.2  ->  act:core@0.1.3  ->  act:core@1.0.0
+act:core@0.1.0  ->  ...  ->  act:core@0.1.6  ->  act:core@1.0.0
 ```
 
 A host MAY support multiple interface versions simultaneously. A component declares which version it implements through its WIT world.
@@ -615,9 +618,7 @@ A host MAY support multiple interface versions simultaneously. A component decla
 
 ### 9.1 Stream Error Model
 
-All errors from `call-tool` are delivered as `stream-event::error(tool-error)` events in the response stream. A `stream-event::error` is terminal — the stream MUST close after it. There is no separate early-error path; errors that occur before execution begins (e.g. tool not found, capability denied) are returned as a stream with a single `error` event.
-
-The response-level `metadata` on `call-response` is always available, regardless of whether the stream contains an error.
+All errors from `call-tool` are delivered as `stream-event::error(tool-error)` events in the result stream. A `stream-event::error` is terminal — the stream MUST close after it. There is no separate early-error path; errors that occur before execution begins (e.g. tool not found, capability denied) are returned as a stream with a single `error` event.
 
 Content parts delivered before an `error` event are valid and SHOULD be delivered to the caller.
 
@@ -647,7 +648,7 @@ A conformant ACT component:
 - MUST include the `default-language` entry in every `localized-string::localized` it produces. `localized-string::plain` is assumed to be in `default-language`.
 - MUST return valid `tool-definition` records from `list-tools()`.
 - MUST accept any `tool-call` whose `arguments` conform to the declared schemas (encoded as dCBOR).
-- MUST produce a well-formed `stream<stream-event>` from `call-tool()`.
+- MUST produce a well-formed `stream<stream-event>` from `call-tool()`. The stream is returned directly — there is no response wrapper.
 - MUST return a valid JSON Schema from `get-config-schema()` if configuration is required, or `none` if not.
 - MUST accept `none` as config in `list-tools` and `call-tool` if `get-config-schema` returns `none`.
 - MUST produce valid CBOR in all output (metadata values, content-part data) but is NOT required to produce deterministic CBOR. The host canonicalizes.
@@ -670,12 +671,12 @@ A conformant ACT host:
 
 ## Appendix A: Complete WIT
 
-The WIT is split across three files in three packages: `act:core@0.1.5`, `act:events@0.1.3`, and `act:resources@0.1.3`. The events and resources packages depend on `act:core/types`.
+The WIT is split across three files in three packages: `act:core@0.1.6`, `act:events@0.1.3`, and `act:resources@0.1.3`. The events and resources packages depend on `act:core/types`.
 
 **`wit/act-core.wit`** — types, tool-provider, and world:
 
 ```wit
-package act:core@0.1.5;
+package act:core@0.1.6;
 
 interface types {
 
@@ -748,8 +749,6 @@ interface types {
 
   /// A request to invoke a tool.
   record tool-call {
-    /// Caller-assigned identifier for correlation.
-    id: string,
     /// Tool name, as returned by list-tools.
     name: string,
     /// Deterministically Encoded CBOR arguments (RFC 8949 §4.2).
@@ -760,9 +759,14 @@ interface types {
 
   /// A single piece of content in a tool's result stream.
   record content-part {
-    /// Payload bytes. Interpretation depends on `mime-type`.
+    /// Payload bytes. Interpretation depends on `mime-type`:
+    /// - `text/*` — raw UTF-8 text
+    /// - `application/cbor` — CBOR-encoded structured data
+    /// - `application/json` — JSON
+    /// - `image/*` — binary image data
+    /// - absent or other — opaque bytes (application/octet-stream)
     data: list<u8>,
-    /// MIME type of the data. If absent, defaults to "application/cbor".
+    /// MIME type of the data. If absent, data is treated as opaque bytes.
     mime-type: option<string>,
     metadata: metadata,
   }
@@ -788,13 +792,6 @@ interface types {
   //  Response wrappers
   // ──────────────────────────────────────────────
 
-  /// Response from call-tool. Metadata is available immediately;
-  /// body is a stream of content and/or a terminal error.
-  record call-response {
-    metadata: metadata,
-    body: stream<stream-event>,
-  }
-
   /// Response from list-tools.
   record list-tools-response {
     metadata: metadata,
@@ -807,7 +804,7 @@ interface tool-provider {
     component-info,
     tool-definition,
     tool-call,
-    call-response,
+    stream-event,
     list-tools-response,
     tool-error,
   };
@@ -826,9 +823,9 @@ interface tool-provider {
   /// Async because bridge components may need to fetch remote schemas.
   list-tools: async func(config: option<list<u8>>) -> result<list-tools-response, tool-error>;
 
-  /// Invokes a tool and returns a response with metadata and a stream of results.
-  /// Metadata is available regardless of whether the call succeeds or fails.
-  call-tool: async func(config: option<list<u8>>, call: tool-call) -> call-response;
+  /// Invokes a tool and returns a stream of results.
+  /// Each stream-event is either content or a terminal error.
+  call-tool: async func(config: option<list<u8>>, call: tool-call) -> stream<stream-event>;
 }
 
 world act-world {
@@ -1012,25 +1009,29 @@ A tool definition using well-known metadata keys (shown as JSON for readability;
 }
 ```
 
-### B.4 Call Response
+### B.4 Tool Result Stream
 
-A successful `call-response` (shown as JSON for readability):
+A successful `call-tool` returns a `stream<stream-event>`. Example stream (shown as pseudo-JSON for readability):
 
-```json
-{
-  "metadata": [
-    ["acme:request-id", "req-abc-123"]
-  ],
-  "body": "<stream of stream-events>"
-}
+```
+[
+  content({ data: "Hello, world!", mime_type: "text/plain", metadata: [] }),
+  content({ data: "<additional data>", mime_type: "text/plain", metadata: [] })
+]
 ```
 
-An error `call-response` — metadata is still available, error is the sole stream event:
+An error stream — the error event is terminal, the stream closes after it:
 
-```json
-{
-  "metadata": [
-    ["acme:request-id", "req-abc-456"]
-  ],
-  "body": "<stream: [error({ kind: 'std:not-found', message: [['en', 'Tool foo does not exist']], metadata: [] })]>"
-}
+```
+[
+  error({ kind: "std:not-found", message: "Tool foo does not exist", metadata: [] })
+]
+```
+
+A stream may contain content before an error (partial results):
+
+```
+[
+  content({ data: "partial result...", mime_type: "text/plain", metadata: [] }),
+  error({ kind: "std:timeout", message: "Operation timed out", metadata: [] })
+]

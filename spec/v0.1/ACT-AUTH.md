@@ -151,7 +151,7 @@ The component receives a ready-to-use token — it does not participate in the O
 ### 5.2 Metadata
 
 - **Never store secrets in metadata.** Metadata is not encrypted and may be logged, cached, or forwarded by hosts and transport adapters.
-- Credentials belong in `config`, not in `tool-call.metadata` or `call-response.metadata`.
+- Credentials belong in `config`, not in `tool-call.metadata`.
 
 ### 5.3 Storage
 
