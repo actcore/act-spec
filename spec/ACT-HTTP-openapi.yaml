@@ -1,16 +1,17 @@
 openapi: 3.2.0
 info:
   title: ACT HTTP API
-  version: 0.1.4
+  version: 0.2.0
   description: |
     A stateless HTTP API for discovering and invoking tools.
     Any HTTP server that conforms to this specification is a valid implementation.
 
-    Config is always passed in the request body — there are no config-related headers.
-    Every endpoint that accepts config supports both `POST` and `QUERY` with identical
+    Metadata is always passed in the request body — there are no metadata-related headers.
+    Every endpoint that accepts metadata supports both `POST` and `QUERY` with identical
     request/response formats. `QUERY` is safe and cacheable; `POST` is the universal fallback.
 
     See ACT-HTTP.md for the full prose specification.
+    See ACT-CONSTANTS.md for the authoritative list of well-known `std:` constants.
   license:
     name: Apache-2.0
 
@@ -18,42 +19,66 @@ paths:
   /info:
     get:
       operationId: getInfo
-      summary: Server metadata
-      description: Returns server-level information including name, version, and capabilities.
-      parameters:
-        - $ref: "#/components/parameters/AcceptLanguage"
+      summary: Component info
+      description: Returns component metadata in the same format as the `act:component` WASM custom section.
       responses:
         "200":
-          description: Server info.
+          description: Component info.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ServerInfo"
+                $ref: "#/components/schemas/ComponentInfo"
 
-  /config-schema:
-    get:
-      operationId: getConfigSchema
-      summary: Configuration schema
+  /metadata-schema:
+    post:
+      operationId: getMetadataSchema
+      summary: Metadata schema
       description: |
-        Returns a JSON Schema describing the configuration this server accepts.
-        Returns 204 if the server does not require configuration.
+        Returns a JSON Schema describing the metadata this server accepts.
+        Returns 204 if the server does not require metadata.
+        Supports iterative discovery — include current metadata in the body
+        to get an expanded schema for bridge components.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MetadataRequest"
       responses:
         "200":
-          description: Config JSON Schema.
+          description: Metadata JSON Schema.
           content:
             application/json:
               schema:
                 type: object
-                description: A valid JSON Schema object.
+                description: A valid JSON Schema object of type "object".
         "204":
-          description: Server does not require configuration.
+          description: Server does not require metadata.
+    query:
+      operationId: queryMetadataSchema
+      summary: Metadata schema (safe, cacheable)
+      description: Identical to `POST /metadata-schema` but uses the `QUERY` method.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MetadataRequest"
+      responses:
+        "200":
+          description: Metadata JSON Schema.
+          content:
+            application/json:
+              schema:
+                type: object
+        "204":
+          description: Server does not require metadata.
 
   /tools:
     post:
       operationId: listTools
       summary: List tools
-      description: |
-        Returns the list of available tools. Config is passed in the request body.
+      description: Returns the list of available tools. Metadata is passed in the request body.
       parameters:
         - $ref: "#/components/parameters/AcceptLanguage"
       requestBody:
@@ -61,7 +86,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ConfigRequest"
+              $ref: "#/components/schemas/MetadataRequest"
       responses:
         "200":
           description: Tool list.
@@ -77,8 +102,8 @@ paths:
       operationId: queryTools
       summary: List tools (safe, cacheable)
       description: |
-        Returns the list of available tools. Identical to `POST /tools` but uses the
-        `QUERY` method (draft-ietf-httpbis-safe-method-w-body), which is safe and idempotent.
+        Identical to `POST /tools` but uses the `QUERY` method
+        (draft-ietf-httpbis-safe-method-w-body), which is safe and idempotent.
       parameters:
         - $ref: "#/components/parameters/AcceptLanguage"
       requestBody:
@@ -86,7 +111,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ConfigRequest"
+              $ref: "#/components/schemas/MetadataRequest"
       responses:
         "200":
           description: Tool list.
@@ -213,7 +238,7 @@ paths:
       summary: Subscribe to server events
       description: |
         Opens a Server-Sent Events stream for push notifications.
-        Config is passed in the request body.
+        Metadata is passed in the request body.
         The stream stays open until the client disconnects.
         Servers that do not support events return 404.
       requestBody:
@@ -221,7 +246,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ConfigRequest"
+              $ref: "#/components/schemas/MetadataRequest"
       responses:
         "200":
           description: SSE event stream.
@@ -241,14 +266,13 @@ paths:
     query:
       operationId: queryEvents
       summary: Subscribe to server events (safe)
-      description: |
-        Identical to `POST /events` but uses the `QUERY` method.
+      description: Identical to `POST /events` but uses the `QUERY` method.
       requestBody:
         required: false
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ConfigRequest"
+              $ref: "#/components/schemas/MetadataRequest"
       responses:
         "200":
           description: SSE event stream.
@@ -263,7 +287,7 @@ paths:
     post:
       operationId: listResources
       summary: List available resources
-      description: Returns the list of resources available from this server. Config is passed in the request body.
+      description: Returns the list of resources available from this component. Metadata is passed in the request body.
       parameters:
         - $ref: "#/components/parameters/AcceptLanguage"
       requestBody:
@@ -271,7 +295,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ConfigRequest"
+              $ref: "#/components/schemas/MetadataRequest"
       responses:
         "200":
           description: Resource list.
@@ -292,7 +316,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ConfigRequest"
+              $ref: "#/components/schemas/MetadataRequest"
       responses:
         "200":
           description: Resource list.
@@ -307,7 +331,7 @@ paths:
     post:
       operationId: getResource
       summary: Get a resource
-      description: Returns a resource as raw bytes with the appropriate Content-Type header. Config is passed in the request body.
+      description: Returns a resource as raw bytes with the appropriate Content-Type header. Metadata is passed in the request body.
       parameters:
         - name: uri
           in: path
@@ -320,7 +344,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ConfigRequest"
+              $ref: "#/components/schemas/MetadataRequest"
       responses:
         "200":
           description: Resource content.
@@ -349,7 +373,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ConfigRequest"
+              $ref: "#/components/schemas/MetadataRequest"
       responses:
         "200":
           description: Resource content.
@@ -384,39 +408,37 @@ components:
         Incompatible versions result in 406 Not Acceptable.
       schema:
         type: string
-        example: "0.1"
+        example: "0.2"
 
   schemas:
-    ServerInfo:
+    ComponentInfo:
       type: object
-      required:
-        - name
-        - version
-        - description
-        - default_language
+      description: |
+        Component metadata. Same format as the `act:component` WASM custom section.
+        Uses `std:` prefixed keys. Additional keys MAY be present and MUST be ignored
+        if unrecognized.
       properties:
-        name:
+        "std:name":
           type: string
-          description: Server name.
+          description: Component name.
           example: weather-tools
-        version:
+        "std:version":
           type: string
           description: SemVer version.
           example: "1.2.0"
-        description:
+        "std:description":
           type: string
-          description: Human-readable description (resolved to requested language).
+          description: Human-readable description.
           example: Weather data tools
-        default_language:
+        "std:default-language":
           type: string
-          description: BCP 47 language tag for the server's default language.
+          description: BCP 47 language tag for the component's default language.
           example: en
-        capabilities:
+        "std:capabilities":
           type: array
           items:
             $ref: "#/components/schemas/Capability"
-        metadata:
-          $ref: "#/components/schemas/Metadata"
+      additionalProperties: true
 
     Capability:
       type: object
@@ -426,11 +448,11 @@ components:
       properties:
         id:
           type: string
-          description: Capability identifier.
-          example: network:http
+          description: Capability identifier (namespaced URI).
+          example: wasi:http/outgoing-handler
         required:
           type: boolean
-          description: Whether the server fails without this capability.
+          description: Whether the component cannot function without this capability.
         description:
           type: string
           description: Human-readable description.
@@ -503,12 +525,12 @@ components:
         metadata:
           $ref: "#/components/schemas/Metadata"
 
-    ConfigRequest:
+    MetadataRequest:
       type: object
       properties:
-        config:
+        metadata:
           type: object
-          description: Configuration matching the config schema.
+          description: Metadata matching the metadata schema.
 
     ToolCallRequest:
       type: object
@@ -518,9 +540,9 @@ components:
         arguments:
           type: object
           description: Tool arguments conforming to the tool's `parameters_schema`.
-        config:
+        metadata:
           type: object
-          description: Optional configuration matching the config schema.
+          description: Optional metadata matching the metadata schema.
 
     ToolCallResponse:
       type: object
@@ -562,9 +584,8 @@ components:
         kind:
           type: string
           description: |
-            Error category. Well-known values: `std:not-found`, `std:invalid-args`,
-            `std:timeout`, `std:capability-denied`, `std:internal`.
-            Custom values use a namespace prefix (e.g. `acme:rate-limited`).
+            Error category. Well-known values use the `std:` prefix.
+            See ACT-CONSTANTS.md Section 8 for the complete list.
           example: std:invalid-args
         message:
           type: string
@@ -586,7 +607,7 @@ components:
       additionalProperties: true
       description: |
         Key-value metadata. Well-known keys use the `std:` prefix.
-        Third-party keys use their own namespace (e.g. `acme:priority`).
+        See ACT-CONSTANTS.md for the complete list.
 
   responses:
     NotFound:
@@ -601,7 +622,7 @@ components:
               message: "Tool 'foo' does not exist"
 
     InvalidArgs:
-      description: Arguments do not match schema.
+      description: Arguments or metadata do not match schema.
       content:
         application/json:
           schema:

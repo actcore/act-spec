@@ -56,14 +56,7 @@ Metadata-level auth provides credentials for the component to authenticate with 
 
 ### 3.1 Well-Known Metadata Keys for Auth
 
-Components SHOULD use these well-known keys in their metadata schema:
-
-| Key | Type | Description |
-|-----|------|-------------|
-| `std:api-key` | string | API key for the external service |
-| `std:bearer-token` | string | OAuth2/OIDC access token |
-| `std:username` | string | Username for basic auth |
-| `std:password` | string | Password for basic auth |
+Well-known authentication metadata keys are defined in `ACT-CONSTANTS.md` Section 7. Components SHOULD use these well-known keys in their metadata schema: `std:api-key`, `std:bearer-token`, `std:username`, `std:password`.
 
 ### 3.2 Metadata Schema Example
 

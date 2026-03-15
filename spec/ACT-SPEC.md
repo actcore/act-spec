@@ -609,61 +609,15 @@ Every record type in this specification includes a `metadata` field of type `lis
 
 ### 8.2 Well-Known Metadata Keys
 
-The following well-known keys are defined for `tool-definition.metadata`. All values are CBOR-encoded.
+For the complete list of well-known `std:` constants — including tool definition metadata, content part metadata, cross-cutting metadata, bridge metadata, event kinds, and resource URIs — see `ACT-CONSTANTS.md`.
 
-| Key | CBOR type | Description |
-|-----|-----------|-------------|
-| `std:read-only` | bool | Tool does not modify state. |
-| `std:idempotent` | bool | Repeated calls with same arguments produce the same result. |
-| `std:destructive` | bool | Tool may irreversibly modify state. |
-| `std:usage-hints` | localized-string | When to use this tool. |
-| `std:anti-usage-hints` | localized-string | When NOT to use this tool. |
-| `std:examples` | array of bstr | Example tool calls as CBOR-encoded argument maps. |
-| `std:tags` | array of tstr | Categorization tags. |
-| `std:timeout-ms` | uint | Suggested timeout in milliseconds. The host MAY override this. |
-| `std:streaming` | bool | Tool produces results incrementally. Clients MAY use this hint to prefer streaming transports. |
-
-The following well-known keys are defined for `content-part.metadata`:
-
-| Key | CBOR type | Description |
-|-----|-----------|-------------|
-| `std:progress` | uint | Number of units completed so far. |
-| `std:progress-total` | uint | Total number of units, if known. |
-
-The following well-known keys are defined for `tool-call.metadata` (passed as context to components):
-
-| Key | CBOR type | Description |
-|-----|-----------|-------------|
-| `std:forward` | bstr (CBOR-encoded metadata) | Opaque metadata blob forwarded by bridge components to the next component in a chain (see Section 8.3). |
-
-The following well-known keys may appear on any metadata field:
-
-| Key | CBOR type | Description |
-|-----|-----------|-------------|
-| `std:traceparent` | tstr | W3C Trace Context `traceparent` header value ([W3C Trace Context](https://www.w3.org/TR/trace-context/)). Enables distributed tracing across component boundaries. |
-| `std:tracestate` | tstr | W3C Trace Context `tracestate` header value. Carries vendor-specific trace data. |
-| `std:request-id` | tstr | Correlation ID for logging. |
-| `std:progress-token` | tstr | MCP-compatible progress token. |
+Commonly used tool definition metadata keys include `std:read-only`, `std:idempotent`, `std:destructive`, `std:streaming`, and `std:timeout-ms`. All metadata values are CBOR-encoded.
 
 Transport adapters SHOULD propagate `std:traceparent` and `std:tracestate` to/from the corresponding HTTP headers (`traceparent`, `tracestate`) or MCP request extensions.
 
 Hosts MUST NOT reject metadata entries with unrecognized keys. Components MUST NOT require specific response metadata keys to be present.
 
-The following well-known event kinds are defined for `event-type-info.kind` and `event.kind`:
-
-| Kind | Description |
-|------|-------------|
-| `std:tools:changed` | Tool list has changed. Clients SHOULD re-fetch via `list-tools`. |
-| `std:resources:changed` | Resource list has changed. Clients SHOULD re-fetch via `list-resources`. |
-| `std:events:changed` | Event type list has changed. Clients SHOULD re-fetch via `get-event-types`. |
-
 Custom event kinds use namespace prefix (e.g. `acme:order_updated`).
-
-The following well-known resource URIs are defined:
-
-| URI | Description |
-|-----|-------------|
-| `std:icon` | Component icon. Expected MIME type: `image/png` or `image/svg+xml`. |
 
 ### 8.3 Bridge Forwarding
 
@@ -725,13 +679,7 @@ Content parts delivered before an `error` event are valid and SHOULD be delivere
 
 The `tool-error.kind` field is a string. Well-known values use the `std:` prefix. Custom error kinds use their own namespace (e.g. `"acme:rate-limited"`).
 
-| Kind | Source | Description |
-|------|--------|-------------|
-| `std:not-found` | Host or Component | The named tool does not exist. |
-| `std:invalid-args` | Host | Arguments or metadata failed schema validation. |
-| `std:timeout` | Host | The call exceeded the declared or host-configured timeout. |
-| `std:capability-denied` | Host | The component attempted to use a capability that was not granted. |
-| `std:internal` | Component | An unrecoverable error within the component. |
+For the complete list of well-known error kinds, see `ACT-CONSTANTS.md` Section 8. Commonly used error kinds include `std:not-found`, `std:invalid-args`, `std:timeout`, `std:capability-denied`, and `std:internal`.
 
 Hosts MUST NOT reject `tool-error` values with unrecognized `kind` strings. Unknown error kinds SHOULD be treated as equivalent to `std:internal` for transport error code mapping purposes.
 

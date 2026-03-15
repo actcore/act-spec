@@ -89,27 +89,31 @@ A single piece of content in a tool's response.
 | `message` | string | Human-readable error message (resolved to requested language). |
 | `metadata` | object | Optional key-value metadata. |
 
-### 2.4 Server Info
+### 2.4 Component Info
 
-Returned by the info endpoint.
+Returned by the info endpoint. Uses the same format as the `act:component` WASM custom section (see ACT-SPEC.md Section 3.2).
 
 ```json
 {
-  "name": "weather-tools",
-  "version": "1.2.0",
-  "description": "Weather data tools",
-  "default_language": "en"
+  "std:name": "weather-tools",
+  "std:version": "1.2.0",
+  "std:description": "Weather data tools",
+  "std:default-language": "en",
+  "std:capabilities": [
+    { "id": "wasi:http/outgoing-handler", "required": true }
+  ]
 }
 ```
 
 | Field | Type | Description |
 |---|---|---|
-| `name` | string | Server/component name. |
-| `version` | string | Server/component SemVer version string. |
-| `description` | string | Human-readable description (resolved to requested language). |
-| `default_language` | string | BCP 47 language tag for the server's default language. |
-| `capabilities` | array | Optional list of capabilities the server requires (see Section 8). |
-| `metadata` | object | Optional key-value metadata. |
+| `std:name` | string | Component name. |
+| `std:version` | string | Component SemVer version string. |
+| `std:description` | string | Human-readable description. |
+| `std:default-language` | string | Optional BCP 47 language tag for the component's default language. |
+| `std:capabilities` | array | Optional list of capabilities the component requires (see Section 8). |
+
+Additional keys (e.g. `std:skill`, `acme:priority`) MAY be present. Clients MUST ignore unrecognized keys.
 
 ---
 
@@ -143,22 +147,21 @@ Servers MUST support `QUERY /tools/{name}` for tools that declare both `std:read
 
 ## 4. Operations
 
-### 4.1 Server Info — `GET /info`
+### 4.1 Component Info — `GET /info`
 
-Returns server metadata.
+Returns component metadata in the same format as the `act:component` custom section.
 
 ```
 GET /info
-Accept-Language: en
 
 200 OK
 Content-Type: application/json
 
 {
-  "name": "weather-tools",
-  "version": "1.2.0",
-  "description": "Weather data tools",
-  "default_language": "en"
+  "std:name": "weather-tools",
+  "std:version": "1.2.0",
+  "std:description": "Weather data tools",
+  "std:default-language": "en"
 }
 ```
 
@@ -447,13 +450,17 @@ Both `POST` and `QUERY` use the same request body format. For servers that do no
 
 ### 6.1 Well-Known Error Kinds
 
-| `kind` | HTTP Status | Description |
-|---|---|---|
-| `std:not-found` | `404 Not Found` | Tool not found. |
-| `std:invalid-args` | `422 Unprocessable Entity` | Arguments or metadata do not match schema. |
-| `std:timeout` | `504 Gateway Timeout` | Operation timed out. |
-| `std:capability-denied` | `403 Forbidden` | Required capability not available. |
-| `std:internal` | `500 Internal Server Error` | Unexpected server error. |
+For the complete list of well-known error kinds, see `ACT-CONSTANTS.md` Section 8.
+
+The HTTP status code mapping for well-known error kinds is:
+
+| `kind` | HTTP Status |
+|---|---|
+| `std:not-found` | `404 Not Found` |
+| `std:invalid-args` | `422 Unprocessable Entity` |
+| `std:timeout` | `504 Gateway Timeout` |
+| `std:capability-denied` | `403 Forbidden` |
+| `std:internal` | `500 Internal Server Error` |
 
 Custom error kinds use a namespace prefix (e.g. `acme:rate-limited`). Servers MAY map custom kinds to appropriate HTTP status codes.
 
@@ -481,26 +488,15 @@ For non-streaming responses (and streaming responses where the error occurs befo
 
 Metadata is an optional key-value object on tool definitions, content parts, errors, and responses. Well-known keys use the `std:` prefix. Third-party keys use their own namespace (e.g. `acme:priority`).
 
+Well-known `std:` constants are defined in `ACT-CONSTANTS.md`. The following subsections summarize their use in the HTTP API context.
+
 ### 7.1 Tool Definition Metadata
 
-| Key | Type | Description |
-|---|---|---|
-| `std:read-only` | boolean | Tool does not modify state. |
-| `std:idempotent` | boolean | Repeated calls produce the same result. |
-| `std:destructive` | boolean | Tool may cause irreversible changes. |
-| `std:usage-hints` | string | When to use this tool (for AI agents). |
-| `std:anti-usage-hints` | string | When NOT to use this tool (for AI agents). |
-| `std:examples` | array | Example invocations. |
-| `std:tags` | array | Classification tags. |
-| `std:timeout-ms` | integer | Suggested timeout in milliseconds. |
-| `std:streaming` | boolean | Tool produces results incrementally; clients may prefer SSE. |
+Well-known tool definition metadata keys are defined in `ACT-CONSTANTS.md` Section 3. Commonly used keys include `std:read-only`, `std:idempotent`, `std:destructive`, `std:streaming`, and `std:timeout-ms`.
 
 ### 7.2 Content Part Metadata
 
-| Key | Type | Description |
-|---|---|---|
-| `std:progress` | integer | Number of units completed so far. |
-| `std:progress-total` | integer | Total number of units, if known. |
+Well-known content part metadata keys are defined in `ACT-CONSTANTS.md` Section 4. Commonly used keys include `std:progress` and `std:progress-total`.
 
 Example SSE event with progress:
 
@@ -511,22 +507,13 @@ data: {"data": "Processing item 3...", "mime_type": "text/plain", "metadata": {"
 
 ### 7.3 Cross-Cutting Metadata
 
-The following keys may appear on any metadata field (request, response, content part):
-
-| Key | Type | Description |
-|---|---|---|
-| `std:traceparent` | string | W3C Trace Context `traceparent` value. Enables distributed tracing. |
-| `std:tracestate` | string | W3C Trace Context `tracestate` value. Vendor-specific trace data. |
-| `std:request-id` | string | Correlation ID for logging. |
-| `std:progress-token` | string | MCP-compatible progress token. |
+Well-known cross-cutting metadata keys are defined in `ACT-CONSTANTS.md` Section 5. These keys (e.g. `std:traceparent`, `std:tracestate`, `std:request-id`) may appear on any metadata field (request, response, content part).
 
 Servers SHOULD propagate `std:traceparent` and `std:tracestate` to/from the standard HTTP `traceparent` and `tracestate` headers.
 
 ### 7.4 Bridge Metadata
 
-| Key | Type | Description |
-|---|---|---|
-| `std:forward` | object | Opaque metadata blob forwarded by bridge components to the next component in a chain. |
+Well-known bridge metadata keys are defined in `ACT-CONSTANTS.md` Section 6. The `std:forward` key carries an opaque metadata blob forwarded by bridge components to the next component in a chain.
 
 See ACT-SPEC.md Section 8.3 for bridge forwarding details.
 
@@ -534,13 +521,13 @@ See ACT-SPEC.md Section 8.3 for bridge forwarding details.
 
 ## 8. Capabilities
 
-The `capabilities` array in server info declares external dependencies:
+The `std:capabilities` array in component info declares external dependencies:
 
 ```json
 {
-  "capabilities": [
-    { "id": "network:http", "required": true, "description": "HTTP access for API calls" },
-    { "id": "storage:kv", "required": false, "description": "Optional caching" }
+  "std:capabilities": [
+    { "id": "wasi:http/outgoing-handler", "required": true, "description": "HTTP access for API calls" },
+    { "id": "wasi:filesystem/types", "required": false, "description": "Optional file system access" }
   ]
 }
 ```
