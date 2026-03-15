@@ -1,6 +1,6 @@
 # ACT: Agent Component Tools
 
-**Protocol Specification — Version 0.1.6 (Draft)**
+**Protocol Specification — Version 0.2.0 (Draft)**
 
 ---
 
@@ -15,9 +15,9 @@ A single ACT component is a `.wasm` file that exports a well-known set of interf
 - **Universal access** — one component serves both agent-oriented (MCP-compatible) and application-oriented (binary RPC) consumers through transport adapters.
 - **Self-documenting** — every tool carries localized descriptions, parameter schemas, usage hints, and behavioral annotations directly in the component.
 - **Sandboxed** — WASM isolation provides capability-based security by default. Components cannot access host resources unless explicitly linked.
-- **Stateless protocol** — configuration is passed per-call, enabling horizontal scaling and CDN/proxy compatibility. Components MAY maintain internal state (caches, connection pools) as a private optimization, but the protocol does not manage or expose it.
+- **Stateless protocol** — metadata is passed per-call, enabling horizontal scaling and CDN/proxy compatibility. Components MAY maintain internal state (caches, connection pools) as a private optimization, but the protocol does not manage or expose it.
 - **Streaming** — tool results are always delivered as a stream, unifying atomic and incremental result patterns.
-- **Efficient** — Deterministically Encoded CBOR for arguments, config, and content data. Native binary support without base64 overhead.
+- **Efficient** — Deterministically Encoded CBOR for arguments and content data. Native binary support without base64 overhead.
 - **Extensible** — every record carries a `metadata` field with namespaced key-value pairs; breaking changes are handled through WIT package versioning.
 
 ### 1.2 Relationship to Existing Standards
@@ -26,8 +26,8 @@ ACT builds on:
 - **WebAssembly Component Model** — for component packaging, linking, and type system.
 - **WIT (WebAssembly Interface Types)** — as the sole IDL.
 - **WASI Preview 3 (wasip3)** — for async functions, `future`, and `stream` types.
-- **JSON Schema** — for parameter and config schema description. Hosts MAY also support JSON Structure (json-structure.org), detected via the `$schema` field.
-- **CBOR (RFC 8949)** — for binary encoding of arguments, config, and content data. Specifically, Deterministically Encoded CBOR (§4.2).
+- **JSON Schema** — for parameter and metadata schema description. Hosts MAY also support JSON Structure (json-structure.org), detected via the `$schema` field.
+- **CBOR (RFC 8949)** — for binary encoding of arguments and content data. Specifically, Deterministically Encoded CBOR (§4.2).
 - **BCP 47** — for language tags in localized strings.
 
 ACT is not a transport protocol. It defines the component-level contract. Transport bindings (MCP, HTTP+JSON, HTTP+CBOR) are specified separately.
@@ -49,12 +49,11 @@ CBOR examples use CBOR diagnostic notation (RFC 8949 §8).
 | **Component** | A `.wasm` file conforming to the WebAssembly Component Model that exports the ACT world. |
 | **Host** | A runtime (e.g. wasmtime) that loads, links, and executes ACT components. |
 | **Tool** | A named callable function exposed by a component through the `tool-provider` interface. |
-| **Config** | An optional dCBOR-encoded value passed to `list-tools` and `call-tool`, carrying per-call context (credentials, endpoint URLs, etc.). Analogous to HTTP headers. |
+| **Metadata** | A list of key-value pairs (`list<tuple<string, list<u8>>>`) carried by every record type in the protocol and passed as a parameter to discovery and invocation functions. Keys are namespaced strings (`std:` for well-known, vendor prefix for custom). Values are CBOR-encoded. Components produce valid CBOR; the host canonicalizes to dCBOR when needed. |
 | **dCBOR** | Deterministically Encoded CBOR as defined in RFC 8949 §4.2. |
-| **Metadata** | A list of key-value pairs (`list<tuple<string, list<u8>>>`) carried by every record type in the protocol. Keys are namespaced strings (`std:` for well-known, vendor prefix for custom). Values are CBOR-encoded. Components produce valid CBOR; the host canonicalizes to dCBOR when needed. |
 | **Transport Adapter** | A layer that translates between an external protocol (MCP, HTTP, etc.) and ACT host calls. |
 | **Capability** | A host-side resource (network, filesystem, etc.) identified by a URI that a component may require. |
-| **Bridge Component** | A component that adapts an external protocol (OpenAPI, MCP, ACP) into the ACT `tool-provider` interface, configured via `config`. |
+| **Bridge Component** | A component that adapts an external protocol (OpenAPI, MCP, ACT-HTTP) into the ACT `tool-provider` interface, configured via metadata. |
 
 ---
 
@@ -63,20 +62,65 @@ CBOR examples use CBOR diagnostic notation (RFC 8949 §8).
 ### 3.1 Package
 
 ```wit
-package act:core@0.1.6;
+package act:core@0.2.0;
 ```
 
-### 3.2 Types Interface
+### 3.2 Component Info (Custom Section)
+
+Component-level metadata is stored in the WASM binary as a custom section named `act:component`, not as an exported function. This allows hosts, registries, and tooling to read component information without instantiating the component or executing any code.
+
+The custom section contains a CBOR-encoded map. Keys are namespaced strings — well-known keys use the `std:` prefix, third-party keys use their own namespace (e.g. `acme:priority`). Values are CBOR-encoded.
+
+**Well-known keys:**
+
+| Key | CBOR type | Required | Description |
+|-----|-----------|----------|-------------|
+| `std:default-language` | tstr | MAY | BCP 47 language tag for the component's default language. If absent, `plain` strings have no declared language. |
+| `std:description` | tstr or map | MAY | Localized description. Plain string or `{"en": "...", "ru": "..."}` map. |
+| `std:capabilities` | array | MAY | List of capability objects (see below). |
+| `std:skill` | tstr | MAY | Detailed instructions for AI agents (markdown). |
+
+The standard WASM metadata fields `name` and `version` (set via `wasm-tools metadata add` or equivalent) provide the component's name and version. These MUST be present.
+
+Custom keys follow the same namespacing convention as metadata elsewhere in the protocol. Hosts and tooling MUST ignore unrecognized keys.
+
+**Capability object:**
+
+| Field | CBOR type | Required | Description |
+|-------|-----------|----------|-------------|
+| `id` | tstr | MUST | Namespaced URI (e.g. `wasi:sockets/tcp`). |
+| `required` | bool | MUST | Whether the component cannot function without it. |
+| `description` | tstr or map | MAY | Localized description. |
+
+**Example (CBOR diagnostic notation):**
+
+```cbor
+{
+  "std:default-language": "en",
+  "std:description": "Weather data tools",
+  "std:capabilities": [
+    {"id": "wasi:http/outgoing-handler", "required": true}
+  ],
+  "std:skill": "Use this component to fetch weather forecasts..."
+}
+```
+
+**Tooling:**
+- SDK (`#[act_component]`) generates the custom section automatically at compile time.
+- Non-SDK authors use `wasm-tools metadata add` for name/version and a CLI tool (e.g. `act component-info set`) to write the `act:component` section.
+
+### 3.3 Types Interface
 
 ```wit
 interface types {
 
   /// A localizable text value.
   ///
-  /// - `plain` — a single string assumed to be in the component's `default-language`.
-  ///   Use this when localization is not needed.
+  /// - `plain` — an opaque UTF-8 string. If `std:default-language` is declared
+  ///   in the `act:component` section, the string is assumed to be in that language.
+  ///   Otherwise, the language is undefined.
   /// - `localized` — a list of (BCP 47 language-tag, text) pairs.
-  ///   MUST include an entry for `component-info.default-language`.
+  ///   If `std:default-language` is declared, SHOULD include an entry for it.
   variant localized-string {
     plain(string),
     localized(list<tuple<string, string>>),
@@ -88,31 +132,6 @@ interface types {
   /// Third-party keys use their own namespace (e.g. "acme:priority").
   type metadata = list<tuple<string, list<u8>>>;
 
-
-  // ──────────────────────────────────────────────
-  //  Component-level types
-  // ──────────────────────────────────────────────
-
-  /// A capability required or optionally used by the component.
-  /// The `id` field is a namespaced URI (e.g. "wasi:sockets/tcp", "wasi:filesystem/types").
-  record capability {
-    id: string,
-    required: bool,
-    description: option<localized-string>,
-    metadata: metadata,
-  }
-
-  /// Top-level metadata about the component. Returned once at load time.
-  record component-info {
-    name: string,
-    version: string,
-    /// BCP 47 language tag for the component's default language.
-    /// Every localized-string in this component MUST include an entry for this language.
-    default-language: string,
-    description: localized-string,
-    capabilities: list<capability>,
-    metadata: metadata,
-  }
 
 
   // ──────────────────────────────────────────────
@@ -191,40 +210,43 @@ interface types {
 }
 ```
 
-### 3.3 Tool Provider Interface
+### 3.4 Tool Provider Interface
 
 ```wit
 interface tool-provider {
   use types.{
-    component-info,
     tool-definition,
     tool-call,
     stream-event,
     list-tools-response,
     tool-error,
+    metadata,
   };
 
-  /// Returns component-level information.
-  /// The host calls this once at load time and caches the result.
-  get-info: func() -> component-info;
+  /// Returns a JSON Schema (type "object") describing the metadata keys
+  /// this component accepts. Returns `none` if no metadata is required.
+  ///
+  /// When called with empty metadata, the component MUST return immediately
+  /// without performing any network I/O.
+  ///
+  /// The host MAY call this multiple times with progressively filled
+  /// metadata to support iterative schema discovery (Section 4.5).
+  /// Subsequent calls with non-empty metadata MAY perform network I/O
+  /// (e.g. fetching a remote component's schema).
+  get-metadata-schema: async func(metadata: metadata) -> option<string>;
 
-  /// Returns a JSON Schema (or JSON Structure) string describing the
-  /// configuration this component accepts.
-  /// Returns `none` if the component does not require configuration.
-  get-config-schema: func() -> option<string>;
-
-  /// Returns the list of tools available for the given configuration.
-  /// `config` is dCBOR validated against the schema from `get-config-schema`.
+  /// Returns the list of tools available for the given metadata.
   /// Async because bridge components may need to fetch remote schemas.
-  list-tools: async func(config: option<list<u8>>) -> result<list-tools-response, tool-error>;
+  list-tools: async func(metadata: metadata) -> result<list-tools-response, tool-error>;
 
   /// Invokes a tool and returns a stream of results.
+  /// Metadata is carried inside `tool-call.metadata`.
   /// Each stream-event is either content or a terminal error.
-  call-tool: async func(config: option<list<u8>>, call: tool-call) -> stream<stream-event>;
+  call-tool: async func(call: tool-call) -> stream<stream-event>;
 }
 ```
 
-### 3.4 World
+### 3.5 World
 
 ```wit
 world act-world {
@@ -232,17 +254,15 @@ world act-world {
 }
 ```
 
-Components MAY additionally export `event-provider` (Section 3.5) and/or `resource-provider` (Section 3.6). The host detects available interfaces at load time.
+Components MAY additionally export `event-provider` (Section 3.6) and/or `resource-provider` (Section 3.7). The host detects available interfaces at load time.
 
-### 3.5 Event Provider Interface (Optional)
+### 3.6 Event Provider Interface (Optional)
 
-Components that emit events export the `event-provider` interface from the `act:events@0.1.3` package (defined in `act-events.wit`):
+Components that emit events export the `event-provider` interface (defined in `act-events.wit`, part of the `act:core@0.2.0` package):
 
 ```wit
-package act:events@0.1.3;
-
-interface types {
-  use act:core/types.{localized-string, metadata};
+interface event-types {
+  use types.{localized-string, metadata};
 
   record event-type-info {
     kind: string,
@@ -258,26 +278,25 @@ interface types {
 }
 
 interface event-provider {
-  use types.{event-type-info, event};
+  use event-types.{event-type-info, event};
+  use types.{metadata};
 
   get-event-types: func() -> list<event-type-info>;
-  subscribe: async func(config: option<list<u8>>) -> stream<event>;
+  subscribe: async func(metadata: metadata) -> stream<event>;
 }
 ```
 
 - `get-event-types` returns the list of event kinds the component can emit. The host calls this at load time and MAY cache the result.
 - `subscribe` opens a stream of events. The host reads events as they arrive. The stream stays open until the component closes it or the host drops the handle (cancellation).
-- `config` follows the same pattern as `list-tools` and `call-tool` — bridge components may need credentials for external event sources.
+- `metadata` follows the same pattern as `list-tools` and `call-tool` — bridge components may need credentials for external event sources.
 
-### 3.6 Resource Provider Interface (Optional)
+### 3.7 Resource Provider Interface (Optional)
 
-Components that provide resources export the `resource-provider` interface from the `act:resources@0.1.3` package (defined in `act-resources.wit`):
+Components that provide resources export the `resource-provider` interface (defined in `act-resources.wit`, part of the `act:core@0.2.0` package):
 
 ```wit
-package act:resources@0.1.3;
-
-interface types {
-  use act:core/types.{localized-string, metadata};
+interface resource-types {
+  use types.{localized-string, metadata};
 
   record resource-info {
     uri: string,
@@ -294,10 +313,11 @@ interface types {
 }
 
 interface resource-provider {
-  use types.{resource-info, resource-response};
+  use resource-types.{resource-info, resource-response};
+  use types.{metadata};
 
-  list-resources: async func(config: option<list<u8>>) -> list<resource-info>;
-  get-resource: async func(config: option<list<u8>>, uri: string) -> resource-response;
+  list-resources: async func(metadata: metadata) -> list<resource-info>;
+  get-resource: async func(metadata: metadata, uri: string) -> resource-response;
 }
 ```
 
@@ -312,31 +332,31 @@ interface resource-provider {
 ### 4.1 Loading
 
 1. The host loads the `.wasm` component binary.
-2. The host links WASI and other imports according to its capability policy.
-3. The host calls `tool-provider.get-info()` to obtain component metadata, including declared capabilities.
-4. The host calls `tool-provider.get-config-schema()` to determine whether the component requires configuration.
-5. The component is now ready to accept calls.
+2. The host reads the `act:component` custom section (CBOR-encoded) and standard WASM metadata (`name`, `version`) to obtain component information. If the `act:component` section is absent, the host MUST reject the component.
+3. The host links WASI and other imports according to its capability policy. The host MAY use `capabilities` from the custom section to make linking decisions proactively.
+4. The host calls `tool-provider.get-metadata-schema([])` to determine whether the component requires metadata.
+5. The component is now ready to accept calls (if no metadata is required).
 
-If the component imports a WASI interface that the host did not link, the component will trap at the point of use. The host MAY inspect `capabilities` from `get-info()` to make linking decisions proactively, but this is not required.
+If the component imports a WASI interface that the host did not link, the component will trap at the point of use.
 
 ### 4.2 Tool Discovery
 
 `list-tools` is an async function. Bridge components may need to fetch remote schemas (e.g. OpenAPI specs) during discovery, which requires I/O. Simple components return immediately; the async signature imposes no overhead in that case.
 
-1. The host (or transport adapter) calls `list-tools(config)` and awaits the result.
+1. The host (or transport adapter) calls `list-tools(metadata)` and awaits the result.
 2. If `list-tools` returns `Ok(list-tools-response)`, the host processes the response metadata and tool definitions.
 3. If `list-tools` returns `Err(tool-error)`, the host MUST surface the error to the caller through the appropriate transport mechanism. The host MUST NOT cache error results.
-4. The host SHOULD cache successful results for a given config value unless the component indicates dynamism through metadata.
+4. The host SHOULD cache successful results for a given metadata value unless the component indicates dynamism through metadata.
 
-For components without configuration (`get-config-schema` returns `none`), the host calls `list-tools(none)` and MAY cache the result for the lifetime of the component instance.
+For components without metadata requirements (`get-metadata-schema` returns `none`), the host calls `list-tools([])` and MAY cache the result for the lifetime of the component instance.
 
 ### 4.3 Tool Invocation
 
-1. The caller constructs a `tool-call` with a tool `name` and dCBOR `arguments`. Correlation identifiers (if needed) are a transport-layer concern, not part of the protocol.
+1. The caller constructs a `tool-call` with a tool `name`, dCBOR `arguments`, and `metadata`. Correlation identifiers (if needed) are a transport-layer concern, not part of the protocol.
 2. The host MUST validate `arguments` (after decoding from CBOR) against the schema declared in `tool-definition.parameters-schema` for the named tool. If validation fails, the host MUST return a `tool-error` with kind `std:invalid-args` without calling the component.
-3. The host MUST validate `config` against the schema from `get-config-schema` if present. If the component requires config and `none` is provided, or if the config does not match the schema, the host MUST return a `tool-error` with kind `std:invalid-args`.
-4. The host MUST ensure `arguments` and `config` are deterministically encoded before passing them to the component.
-5. The host calls `call-tool(config, call)`.
+3. The host MUST validate metadata against the schema from `get-metadata-schema` if present. If the component requires metadata and none is provided, or if the metadata does not match the schema, the host MUST return a `tool-error` with kind `std:invalid-args`.
+4. The host MUST ensure `arguments` are deterministically encoded before passing them to the component.
+5. The host calls `call-tool(call)`.
 6. The host receives a `stream<stream-event>` and reads events from it:
    - `content(part)` — a piece of result content. There may be zero or more.
    - `error(e)` — a terminal error. The stream ends after this event.
@@ -351,28 +371,40 @@ For components without configuration (`get-config-schema` returns `none`), the h
 4. The host is NOT required to wait for the component to acknowledge cancellation.
 5. Any `content-part` events delivered before cancellation are considered valid and delivered.
 
-### 4.5 Config as Context
+### 4.5 Metadata as Context
 
-Config serves the same role as HTTP headers: it carries per-call context (authentication, endpoint URLs, preferences) that is orthogonal to tool arguments.
+Metadata unifies what was previously split between `config` and `metadata`. It carries per-call context (authentication, endpoint URLs, preferences) and infrastructure data (trace context, progress tokens) in a single mechanism.
 
 - **Arguments** describe _what_ to do (the request body).
-- **Config** describes _where_ and _as whom_ (the request context).
+- **Metadata** describes _where_, _as whom_, and _how_ (the request context).
 
-Transport adapters map config to the natural mechanism for each transport:
+Transport adapters map metadata to the natural mechanism for each transport:
 
-| Transport | Config mechanism |
-|-----------|-----------------|
-| HTTP | `config` field in request body or `X-ACT-Config` header |
-| MCP stdio | Process environment or host configuration |
+| Transport | Metadata mechanism |
+|-----------|-------------------|
+| HTTP | Metadata fields in request body or `X-ACT-Metadata` header |
+| MCP stdio | Process environment, host configuration, or request extensions |
 
-The host MAY merge config from multiple sources (e.g. server defaults + client-provided values) before passing it to the component.
+The host MAY merge metadata from multiple sources (e.g. server defaults + client-provided values) before passing it to the component.
+
+#### Iterative Schema Discovery
+
+For bridge components, the metadata schema may depend on metadata already provided. The host uses `get-metadata-schema` iteratively:
+
+1. Call `get-metadata-schema([])`. The component MUST return immediately without network I/O. It returns a JSON Schema describing its initial metadata requirements.
+2. If the schema has `required` properties without values in the current metadata, the host prompts the caller for those values.
+3. Call `get-metadata-schema(partial_metadata)` with the values obtained. This call MAY perform network I/O (e.g. a bridge connecting to a remote component to discover its metadata schema). The component MAY return an expanded schema.
+4. Repeat until all `required` properties are satisfied.
+5. Call `list-tools(metadata)`.
+
+Simple components return `none` from `get-metadata-schema` and accept empty metadata. They are unaffected by this mechanism.
 
 ### 4.6 Event Subscription
 
 If the component exports `event-provider`:
 
 1. The host calls `get-event-types()` at load time to discover available event kinds.
-2. The host calls `subscribe(config)` to open an event stream.
+2. The host calls `subscribe(metadata)` to open an event stream.
 3. The host reads `event` values from the stream. Each event has a `kind` (matching a declared event kind), optional `data` (dCBOR payload), and `metadata`.
 4. The stream stays open until the component closes it or the host drops the handle.
 5. If the host drops the handle, the component SHOULD release resources promptly.
@@ -381,8 +413,8 @@ If the component exports `event-provider`:
 
 If the component exports `resource-provider`:
 
-1. The host calls `list-resources(config)` to discover available resources.
-2. The host calls `get-resource(config, uri)` to retrieve a specific resource.
+1. The host calls `list-resources(metadata)` to discover available resources.
+2. The host calls `get-resource(metadata, uri)` to retrieve a specific resource.
 3. The host reads the byte stream from `resource-response.body`.
 4. The host uses `resource-response.mime-type` (or falls back to `resource-info.mime-type`) to determine the content type.
 
@@ -392,36 +424,49 @@ If the component exports `resource-provider`:
 
 ### 5.1 Default Language
 
-Each component declares a default language in `component-info.default-language` (a BCP 47 tag). This is the language the component author writes in natively.
+A component MAY declare a default language via `std:default-language` in the `act:component` custom section (a BCP 47 tag). This is the language the component author writes in natively.
 
-The `localized-string` type is a variant with two cases:
-
-- **`plain(string)`** — a single string assumed to be in the component's `default-language`. Use this when localization is not needed (the common case).
-- **`localized(list<tuple<string, string>>)`** — a list of `(language-tag, text)` pairs. MUST include an entry matching `default-language`.
-
-This design lets components that don't need localization simply return a string, while components that do can provide multiple translations.
+If `std:default-language` is not declared, `plain` strings have no declared language and the host treats them as opaque UTF-8 text.
 
 ### 5.2 Localized Strings
 
+The `localized-string` type is a variant with two cases:
+
+- **`plain(string)`** — an opaque UTF-8 string. If `std:default-language` is declared, the string is assumed to be in that language. Otherwise, the language is undefined.
+- **`localized(list<tuple<string, string>>)`** — a list of `(language-tag, text)` pairs. If `std:default-language` is declared, the component SHOULD include an entry for it.
+
 All human-readable text intended for agents or end users is represented as `localized-string`.
 
-- When using `localized`, the component MUST include an entry for the component's `default-language`.
-- Components MAY provide additional entries for any number of languages.
 - Language tags MUST conform to BCP 47.
+- Components MAY provide entries for any number of languages.
 
-### 5.3 Host Resolution
+### 5.3 CBOR Encoding
 
-When a transport adapter needs a single-language string (e.g. for an MCP response):
+In WIT, `localized-string` is represented as `variant { plain(string), localized(list<tuple<string, string>>) }`. In CBOR (used in the `act:component` custom section, metadata values, and external representations), a more natural encoding is used:
+
+- **`plain`** — a CBOR text string (`tstr`).
+- **`localized`** — a CBOR map (`{tstr → tstr}`) where keys are BCP 47 language tags and values are the localized text.
+
+Examples (CBOR diagnostic notation):
+
+```cbor
+"Weather data tools"
+
+{"en": "Weather data tools", "ru": "Инструменты для погоды"}
+```
+
+Hosts and SDKs MUST handle both forms: a bare text string is `plain`, a map of strings is `localized`. This applies to the `act:component` custom section (`std:description`), metadata values containing localized strings, and any external CBOR/JSON representation.
+
+### 5.4 Host Resolution
+
+When a transport adapter needs a single-language string (e.g. for an MCP response), the resolution strategy is implementation-defined. Hosts SHOULD use `Accept-Language` or equivalent mechanisms to select the best match.
 
 For `plain(text)`:
-1. Use `text` directly — it is assumed to be in `default-language`.
+1. Use `text` directly.
 
 For `localized(entries)`:
-1. Match the client's preferred language exactly.
-2. Match by prefix (e.g. `"zh"` matches `"zh-Hans"`).
-3. Fall back to the component's `default-language`.
-4. Fall back to `"en"` (host MAY implement this as a hardcoded fallback).
-5. Fall back to the first available entry.
+1. Select the best match using the host's language resolution strategy (e.g. `Accept-Language` matching).
+2. If no match is found, fall back to `std:default-language` (if declared), then to the first available entry.
 
 The component is not involved in language selection — it returns all available localizations, and the host or adapter chooses.
 
@@ -431,7 +476,7 @@ The component is not involved in language selection — it returns all available
 
 ### 6.1 Deterministically Encoded CBOR
 
-Tool arguments and config are encoded as Deterministically Encoded CBOR (RFC 8949 §4.2). This provides:
+Tool arguments are encoded as Deterministically Encoded CBOR (RFC 8949 §4.2). This provides:
 
 - **Efficiency** — compact binary encoding, smaller than JSON for most payloads.
 - **Native binary data** — CBOR byte strings (`bstr`) carry binary data directly, eliminating base64 overhead.
@@ -459,7 +504,7 @@ The top-level `arguments` field of `tool-call` is a dCBOR map where keys corresp
 
 ### 6.4 Host-Side Validation
 
-The host MUST validate tool call arguments and config before passing them to the component:
+The host MUST validate tool call arguments and metadata before passing them to the component:
 
 1. Decode CBOR to a generic value.
 2. Validate against the declared schema.
@@ -470,6 +515,16 @@ This guarantees that:
 - Components never receive malformed input.
 - Validation errors are surfaced early with `tool-error` kind `std:invalid-args`.
 - Components do not spend WASM cycles on input validation.
+
+#### Metadata Validation
+
+If `get-metadata-schema` returns a JSON Schema:
+
+1. The host constructs a JSON object from the metadata key-value pairs (decoding each CBOR value).
+2. The host validates this object against the schema.
+3. If validation fails, the host MUST return a `tool-error` with kind `std:invalid-args`.
+
+If `get-metadata-schema` returns `none`, the host passes metadata through without validation.
 
 ### 6.5 Content Data
 
@@ -508,7 +563,7 @@ Language-specific SDKs SHOULD generate parameter schemas from native type signat
 
 Capabilities represent host-side resources that a component may need. They are identified by namespaced URI strings.
 
-A component declares its capabilities through the `capabilities` list in `component-info` returned by `get-info()`. This declaration is informational — the host uses it to make linking decisions and to communicate capability requirements to clients (agents, UIs).
+A component declares its capabilities through the `std:capabilities` key in the `act:component` custom section. This declaration is informational — the host uses it to make linking decisions and to communicate capability requirements to clients (agents, UIs).
 
 ### 7.2 Declaration
 
@@ -575,12 +630,20 @@ The following well-known keys are defined for `content-part.metadata`:
 | `std:progress` | uint | Number of units completed so far. |
 | `std:progress-total` | uint | Total number of units, if known. |
 
-The following well-known keys may appear on any metadata field (`tool-call.metadata`, `list-tools-response.metadata`, etc.):
+The following well-known keys are defined for `tool-call.metadata` (passed as context to components):
+
+| Key | CBOR type | Description |
+|-----|-----------|-------------|
+| `std:forward` | bstr (CBOR-encoded metadata) | Opaque metadata blob forwarded by bridge components to the next component in a chain (see Section 8.3). |
+
+The following well-known keys may appear on any metadata field:
 
 | Key | CBOR type | Description |
 |-----|-----------|-------------|
 | `std:traceparent` | tstr | W3C Trace Context `traceparent` header value ([W3C Trace Context](https://www.w3.org/TR/trace-context/)). Enables distributed tracing across component boundaries. |
 | `std:tracestate` | tstr | W3C Trace Context `tracestate` header value. Carries vendor-specific trace data. |
+| `std:request-id` | tstr | Correlation ID for logging. |
+| `std:progress-token` | tstr | MCP-compatible progress token. |
 
 Transport adapters SHOULD propagate `std:traceparent` and `std:tracestate` to/from the corresponding HTTP headers (`traceparent`, `tracestate`) or MCP request extensions.
 
@@ -602,12 +665,48 @@ The following well-known resource URIs are defined:
 |-----|-------------|
 | `std:icon` | Component icon. Expected MIME type: `image/png` or `image/svg+xml`. |
 
-### 8.3 Versioning
+### 8.3 Bridge Forwarding
+
+Bridge components chain ACT components across network boundaries. The `std:forward` metadata key enables multi-level chaining without namespace collisions.
+
+A bridge component:
+1. Consumes its own metadata keys (e.g. `act:remote_url`).
+2. Decodes `std:forward` as a metadata list and passes it to the remote component.
+3. The remote component may itself be a bridge with its own `std:forward` — recursion is natural.
+
+The `get-metadata-schema` function supports this pattern through iterative discovery:
+
+```
+1. get-metadata-schema([])
+   → {"properties": {"act:remote_url": {"type": "string"}}, "required": ["act:remote_url"]}
+
+2. get-metadata-schema([("act:remote_url", cbor("https://..."))])
+   → {
+       "properties": {
+         "act:remote_url": {"type": "string"},
+         "std:forward": {
+           "type": "object",
+           "properties": {"api_key": {"type": "string"}},
+           "required": ["api_key"]
+         }
+       },
+       "required": ["act:remote_url"]
+     }
+
+3. list-tools([
+     ("act:remote_url", cbor("https://...")),
+     ("std:forward", cbor({"api_key": "sk-..."}))
+   ])
+```
+
+The bridge forwards `std:forward` as the remote component's metadata. Each level of nesting unwraps one layer.
+
+### 8.4 Versioning
 
 Breaking changes to the WIT interfaces are handled through WIT package versioning:
 
 ```
-act:core@0.1.0  ->  ...  ->  act:core@0.1.6  ->  act:core@1.0.0
+act:core@0.1.0  ->  ...  ->  act:core@0.1.6  ->  act:core@0.2.0
 ```
 
 A host MAY support multiple interface versions simultaneously. A component declares which version it implements through its WIT world.
@@ -629,7 +728,7 @@ The `tool-error.kind` field is a string. Well-known values use the `std:` prefix
 | Kind | Source | Description |
 |------|--------|-------------|
 | `std:not-found` | Host or Component | The named tool does not exist. |
-| `std:invalid-args` | Host | Arguments or config failed schema validation. |
+| `std:invalid-args` | Host | Arguments or metadata failed schema validation. |
 | `std:timeout` | Host | The call exceeded the declared or host-configured timeout. |
 | `std:capability-denied` | Host | The component attempted to use a capability that was not granted. |
 | `std:internal` | Component | An unrecoverable error within the component. |
@@ -643,25 +742,27 @@ Hosts MUST NOT reject `tool-error` values with unrecognized `kind` strings. Unkn
 ### 10.1 Conformant Component
 
 A conformant ACT component:
-- MUST export the `act-world` world as defined in Section 3.4.
-- MUST return valid `component-info` from `get-info()`, including a valid BCP 47 `default-language`.
-- MUST include the `default-language` entry in every `localized-string::localized` it produces. `localized-string::plain` is assumed to be in `default-language`.
+- MUST export the `act-world` world as defined in Section 3.5.
+- MUST include standard WASM metadata fields `name` and `version`.
+- MUST include an `act:component` custom section with a valid CBOR-encoded map (Section 3.2).
+- If `std:default-language` is declared, SHOULD include an entry for it in every `localized-string::localized` it produces.
 - MUST return valid `tool-definition` records from `list-tools()`.
 - MUST accept any `tool-call` whose `arguments` conform to the declared schemas (encoded as dCBOR).
 - MUST produce a well-formed `stream<stream-event>` from `call-tool()`. The stream is returned directly — there is no response wrapper.
-- MUST return a valid JSON Schema from `get-config-schema()` if configuration is required, or `none` if not.
-- MUST accept `none` as config in `list-tools` and `call-tool` if `get-config-schema` returns `none`.
+- MUST return a valid JSON Schema of type "object" from `get-metadata-schema()` if metadata is required, or `none` if not.
+- MUST return immediately without network I/O when `get-metadata-schema` is called with empty metadata.
+- MUST accept empty metadata in `list-tools` and `call-tool` if `get-metadata-schema` returns `none`.
 - MUST produce valid CBOR in all output (metadata values, content-part data) but is NOT required to produce deterministic CBOR. The host canonicalizes.
 - Is NOT required to verify deterministic CBOR encoding of incoming data but MUST support the deterministic subset.
 
 ### 10.2 Conformant Host
 
 A conformant ACT host:
-- MUST encode arguments and config as dCBOR before passing them to the component (Section 6.2).
+- MUST encode arguments as dCBOR before passing them to the component (Section 6.2).
 - MUST canonicalize CBOR produced by components (metadata values, content-part data) to dCBOR before passing to external consumers.
 - MUST validate tool call arguments against declared schemas before invoking the component (Section 6.4).
-- MUST validate config against the config schema if present (Section 6.4).
-- MUST support the `localized-string` fallback resolution order (Section 5.3).
+- MUST validate metadata against the metadata schema if present (Section 6.4).
+- MUST implement a language resolution strategy for `localized-string` (Section 5.4). The specific strategy is implementation-defined.
 - MUST propagate cancellation by dropping the stream handle (Section 4.4).
 - MUST ignore unrecognized metadata keys (Section 8.1).
 - MUST handle `tool-error` returned by `list-tools` and surface it to the caller through the appropriate transport mechanism (Section 4.2).
@@ -671,21 +772,24 @@ A conformant ACT host:
 
 ## Appendix A: Complete WIT
 
-The WIT is split across three files in three packages: `act:core@0.1.6`, `act:events@0.1.3`, and `act:resources@0.1.3`. The events and resources packages depend on `act:core/types`.
+The WIT is split across three files in a single package `act:core@0.2.0`. All interfaces share the same package namespace.
 
-**`wit/act-core.wit`** — types, tool-provider, and world:
+**`wit/act-core.wit`** — types, tool-provider, and world.
+
+Component-level metadata (name, version, description, capabilities) is stored in the `act:component` WASM custom section (CBOR-encoded) and standard WASM metadata fields, not as an exported function. See Section 3.2.
 
 ```wit
-package act:core@0.1.6;
+package act:core@0.2.0;
 
 interface types {
 
   /// A localizable text value.
   ///
-  /// - `plain` — a single string assumed to be in the component's `default-language`.
-  ///   Use this when localization is not needed.
+  /// - `plain` — an opaque UTF-8 string. If `std:default-language` is declared
+  ///   in the `act:component` section, the string is assumed to be in that language.
+  ///   Otherwise, the language is undefined.
   /// - `localized` — a list of (BCP 47 language-tag, text) pairs.
-  ///   MUST include an entry for `component-info.default-language`.
+  ///   If `std:default-language` is declared, SHOULD include an entry for it.
   variant localized-string {
     plain(string),
     localized(list<tuple<string, string>>),
@@ -696,32 +800,6 @@ interface types {
   /// Well-known keys use the `std:` prefix (e.g. "std:read-only", "std:timeout-ms").
   /// Third-party keys use their own namespace (e.g. "acme:priority").
   type metadata = list<tuple<string, list<u8>>>;
-
-
-  // ──────────────────────────────────────────────
-  //  Component-level types
-  // ──────────────────────────────────────────────
-
-  /// A capability required or optionally used by the component.
-  /// The `id` field is a namespaced URI (e.g. "wasi:sockets/tcp", "wasi:filesystem/types").
-  record capability {
-    id: string,
-    required: bool,
-    description: option<localized-string>,
-    metadata: metadata,
-  }
-
-  /// Top-level metadata about the component. Returned once at load time.
-  record component-info {
-    name: string,
-    version: string,
-    /// BCP 47 language tag for the component's default language.
-    /// Every localized-string in this component MUST include an entry for this language.
-    default-language: string,
-    description: localized-string,
-    capabilities: list<capability>,
-    metadata: metadata,
-  }
 
 
   // ──────────────────────────────────────────────
@@ -799,33 +877,40 @@ interface types {
   }
 }
 
+/// Component-level metadata (name, version, description, capabilities) is stored
+/// in the `act:component` WASM custom section (CBOR-encoded) and standard WASM
+/// metadata fields, not as an exported function.
+
 interface tool-provider {
   use types.{
-    component-info,
     tool-definition,
     tool-call,
     stream-event,
     list-tools-response,
     tool-error,
+    metadata,
   };
 
-  /// Returns component-level information.
-  /// The host calls this once at load time and caches the result.
-  get-info: func() -> component-info;
+  /// Returns a JSON Schema (type "object") describing the metadata keys
+  /// this component accepts. Returns `none` if no metadata is required.
+  ///
+  /// When called with empty metadata, the component MUST return immediately
+  /// without performing any network I/O.
+  ///
+  /// The host MAY call this multiple times with progressively filled
+  /// metadata to support iterative schema discovery for bridge components.
+  /// Subsequent calls with non-empty metadata MAY perform network I/O
+  /// (e.g. fetching a remote component's schema).
+  get-metadata-schema: async func(metadata: metadata) -> option<string>;
 
-  /// Returns a JSON Schema (or JSON Structure) string describing the
-  /// configuration this component accepts.
-  /// Returns `none` if the component does not require configuration.
-  get-config-schema: func() -> option<string>;
-
-  /// Returns the list of tools available for the given configuration.
-  /// `config` is dCBOR validated against the schema from `get-config-schema`.
+  /// Returns the list of tools available for the given metadata.
   /// Async because bridge components may need to fetch remote schemas.
-  list-tools: async func(config: option<list<u8>>) -> result<list-tools-response, tool-error>;
+  list-tools: async func(metadata: metadata) -> result<list-tools-response, tool-error>;
 
   /// Invokes a tool and returns a stream of results.
+  /// Metadata is carried inside `tool-call.metadata`.
   /// Each stream-event is either content or a terminal error.
-  call-tool: async func(config: option<list<u8>>, call: tool-call) -> stream<stream-event>;
+  call-tool: async func(call: tool-call) -> stream<stream-event>;
 }
 
 world act-world {
@@ -835,13 +920,13 @@ world act-world {
 }
 ```
 
-**`wit/act-events.wit`** — event types and event-provider interface (`act:events` package):
+**`wit/act-events.wit`** — event types and event-provider interface:
 
 ```wit
-package act:events@0.1.3;
+package act:core@0.2.0;
 
-interface types {
-  use act:core/types.{localized-string, metadata};
+interface event-types {
+  use types.{localized-string, metadata};
 
   /// Describes a type of event the component can emit.
   record event-type-info {
@@ -864,7 +949,8 @@ interface types {
 }
 
 interface event-provider {
-  use types.{event-type-info, event};
+  use event-types.{event-type-info, event};
+  use types.{metadata};
 
   /// Returns the list of event types this component can emit.
   /// The host calls this at load time and MAY cache the result.
@@ -872,17 +958,17 @@ interface event-provider {
 
   /// Opens a stream of events. The host reads events as they arrive.
   /// The stream stays open until the component closes it or the host drops the handle.
-  subscribe: async func(config: option<list<u8>>) -> stream<event>;
+  subscribe: async func(metadata: metadata) -> stream<event>;
 }
 ```
 
-**`wit/act-resources.wit`** — resource types and resource-provider interface (`act:resources` package):
+**`wit/act-resources.wit`** — resource types and resource-provider interface:
 
 ```wit
-package act:resources@0.1.3;
+package act:core@0.2.0;
 
-interface types {
-  use act:core/types.{localized-string, metadata};
+interface resource-types {
+  use types.{localized-string, metadata};
 
   /// Describes a resource available from the component.
   record resource-info {
@@ -904,84 +990,132 @@ interface types {
 }
 
 interface resource-provider {
-  use types.{resource-info, resource-response};
+  use resource-types.{resource-info, resource-response};
+  use types.{metadata};
 
   /// Returns the list of resources available from this component.
-  list-resources: async func(config: option<list<u8>>) -> list<resource-info>;
+  list-resources: async func(metadata: metadata) -> list<resource-info>;
 
   /// Returns a resource by URI.
   /// Returns a resource-response with mime-type, metadata, and a byte stream.
-  get-resource: async func(config: option<list<u8>>, uri: string) -> resource-response;
+  get-resource: async func(metadata: metadata, uri: string) -> resource-response;
 }
 ```
 
 ---
 
-## Appendix B: Example (Informative)
+## Appendix B: Examples (Informative)
 
-### B.1 Simple Component (no config)
+### B.1 Simple Component (no metadata)
 
-A calculator component — `get-config-schema()` returns `none`.
+A calculator component — `get-metadata-schema([])` returns `none`.
 
-**component-info:**
+**WASM metadata:** `name = "calculator"`, `version = "1.0.0"`
 
-```json
+**`act:component` custom section (CBOR):**
+
+```cbor
 {
-  "name": "calculator",
-  "version": "1.0.0",
-  "default_language": "en",
-  "description": [["en", "Basic arithmetic tools"]],
-  "capabilities": [],
-  "metadata": []
+  "std:default-language": "en",
+  "std:description": "Basic arithmetic tools"
 }
 ```
 
-**call-tool(none, call) — arguments in CBOR diagnostic notation:**
+**call-tool(call) — arguments in CBOR diagnostic notation:**
 
 ```
-{"a": 2, "b": 3}
-```
-
-The host encodes this as dCBOR bytes before passing to the component.
-
-### B.2 Bridge Component (with config)
-
-An OpenAPI bridge — `get-config-schema()` returns a schema.
-
-**get-config-schema():**
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "spec-url": {
-      "type": "string",
-      "format": "uri",
-      "description": "URL of the OpenAPI specification"
-    },
-    "base-url": {
-      "type": "string",
-      "format": "uri",
-      "description": "Base URL for API requests (overrides spec servers)"
-    },
-    "auth-header": {
-      "type": "string",
-      "description": "Value for the Authorization header"
-    }
-  },
-  "required": ["spec-url"]
+tool-call {
+  name: "add",
+  arguments: {"a": 2, "b": 3},
+  metadata: []
 }
 ```
 
-**Config in CBOR diagnostic notation:**
+The host encodes arguments as dCBOR bytes before passing to the component.
+
+### B.2 Bridge Component (with metadata)
+
+An OpenAPI bridge — `get-metadata-schema` returns a schema describing required metadata.
+
+**Iterative discovery:**
 
 ```
-{"spec-url": "https://api.example.com/openapi.json"}
+1. get-metadata-schema([])
+   → {
+       "type": "object",
+       "properties": {
+         "act:spec-url": {
+           "type": "string",
+           "format": "uri",
+           "description": "URL of the OpenAPI specification"
+         },
+         "act:base-url": {
+           "type": "string",
+           "format": "uri",
+           "description": "Base URL for API requests (overrides spec servers)"
+         },
+         "act:auth-header": {
+           "type": "string",
+           "description": "Value for the Authorization header"
+         }
+       },
+       "required": ["act:spec-url"]
+     }
+
+2. list-tools([("act:spec-url", cbor("https://api.example.com/openapi.json"))])
+   → tools derived from the OpenAPI spec
 ```
 
-**list-tools(config) returns tools derived from the OpenAPI spec.** Tool definitions use JSON Schema in `parameters-schema` — schemas are always JSON strings regardless of the CBOR encoding of runtime values.
+### B.3 Chained Bridges (with std:forward)
 
-### B.3 Tool Definition with Metadata
+Host → bridge A → bridge B → component.
+
+```
+1. get-metadata-schema([])
+   → {
+       "properties": {
+         "act:remote_url": {"type": "string"},
+         "std:forward": {}
+       },
+       "required": ["act:remote_url"]
+     }
+
+2. get-metadata-schema([("act:remote_url", cbor("https://bridge-b.example.com"))])
+   → {
+       "properties": {
+         "act:remote_url": {"type": "string"},
+         "std:forward": {
+           "type": "object",
+           "properties": {
+             "act:remote_url": {"type": "string"},
+             "std:forward": {
+               "type": "object",
+               "properties": {"api_key": {"type": "string"}},
+               "required": ["api_key"]
+             }
+           },
+           "required": ["act:remote_url"]
+         }
+       },
+       "required": ["act:remote_url"]
+     }
+
+3. call-tool({
+     name: "fetch",
+     arguments: {...},
+     metadata: [
+       ("act:remote_url", cbor("https://bridge-b.example.com")),
+       ("std:forward", cbor({
+         "act:remote_url": "https://component.example.com",
+         "std:forward": {"api_key": "sk-..."}
+       }))
+     ]
+   })
+```
+
+Bridge A extracts `act:remote_url`, decodes `std:forward` as metadata, and passes it to bridge B. Bridge B does the same, passing `{"api_key": "sk-..."}` to the final component.
+
+### B.4 Tool Definition with Metadata
 
 A tool definition using well-known metadata keys (shown as JSON for readability; actual metadata values are CBOR-encoded):
 
@@ -1009,7 +1143,7 @@ A tool definition using well-known metadata keys (shown as JSON for readability;
 }
 ```
 
-### B.4 Tool Result Stream
+### B.5 Tool Result Stream
 
 A successful `call-tool` returns a `stream<stream-event>`. Example stream (shown as pseudo-JSON for readability):
 
@@ -1035,3 +1169,4 @@ A stream may contain content before an error (partial results):
   content({ data: "partial result...", mime_type: "text/plain", metadata: [] }),
   error({ kind: "std:timeout", message: "Operation timed out", metadata: [] })
 ]
+```

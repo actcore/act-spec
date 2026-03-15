@@ -1,6 +1,6 @@
 # ACT HTTP API
 
-**Protocol Version 0.1 (Draft)**
+**Protocol Version 0.2 (Draft)**
 
 A stateless HTTP API for discovering and invoking tools. Any HTTP server that conforms to this specification is a valid implementation — no WebAssembly runtime or specific programming language is required.
 
@@ -20,7 +20,7 @@ The API supports:
 - **Tool discovery** — list available tools with their schemas and descriptions.
 - **Tool invocation** — call a tool with JSON arguments, receive structured results.
 - **Streaming** — optionally stream results via Server-Sent Events.
-- **Configuration** — pass per-request context (credentials, endpoint URLs) without server-side sessions.
+- **Metadata** — pass per-request context (credentials, endpoint URLs) without server-side sessions.
 - **Localization** — tool descriptions and error messages support multiple languages.
 
 ---
@@ -120,21 +120,22 @@ An ACT HTTP server exposes a single set of tools. Hosting multiple components be
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/info` | Server metadata |
-| `GET` | `/config-schema` | Config JSON Schema (or `204 No Content` if none) |
-| `POST` | `/tools` | List tools (config in request body) |
-| `QUERY` | `/tools` | List tools (config in request body; safe, cacheable) |
+| `POST` | `/metadata-schema` | Metadata JSON Schema (metadata in body for iterative discovery) |
+| `QUERY` | `/metadata-schema` | Metadata JSON Schema (safe, cacheable) |
+| `POST` | `/tools` | List tools (metadata in request body) |
+| `QUERY` | `/tools` | List tools (metadata in request body; safe, cacheable) |
 | `POST` | `/tools/{name}` | Invoke a tool |
 | `QUERY` | `/tools/{name}` | Invoke a read-only, idempotent tool (safe, cacheable) |
-| `POST` | `/events` | Subscribe to server events (SSE, config in body) |
-| `QUERY` | `/events` | Subscribe to server events (SSE, config in body; safe) |
-| `POST` | `/resources` | List available resources (config in body) |
-| `QUERY` | `/resources` | List available resources (config in body; safe) |
-| `POST` | `/resources/{uri}` | Get a resource (config in body) |
-| `QUERY` | `/resources/{uri}` | Get a resource (config in body; safe) |
+| `POST` | `/events` | Subscribe to server events (SSE, metadata in body) |
+| `QUERY` | `/events` | Subscribe to server events (SSE, metadata in body; safe) |
+| `POST` | `/resources` | List available resources (metadata in body) |
+| `QUERY` | `/resources` | List available resources (metadata in body; safe) |
+| `POST` | `/resources/{uri}` | Get a resource (metadata in body) |
+| `QUERY` | `/resources/{uri}` | Get a resource (metadata in body; safe) |
 
-Config is always passed in the request body. There are no config-related headers.
+Metadata is always passed in the request body. There are no metadata-related headers.
 
-`QUERY` is defined in [draft-ietf-httpbis-safe-method-w-body](https://datatracker.ietf.org/doc/draft-ietf-httpbis-safe-method-w-body/). It is a safe, idempotent method that accepts a request body. Every endpoint that accepts config supports both `POST` and `QUERY` with identical request/response formats. `POST` is the universal fallback for clients or intermediaries that do not support `QUERY`. `QUERY` enables HTTP caching and signals that the operation is safe.
+`QUERY` is defined in [draft-ietf-httpbis-safe-method-w-body](https://datatracker.ietf.org/doc/draft-ietf-httpbis-safe-method-w-body/). It is a safe, idempotent method that accepts a request body. Every endpoint that accepts metadata supports both `POST` and `QUERY` with identical request/response formats. `POST` is the universal fallback for clients or intermediaries that do not support `QUERY`. `QUERY` enables HTTP caching and signals that the operation is safe.
 
 Servers MUST support `QUERY /tools/{name}` for tools that declare both `std:read-only` and `std:idempotent` in their metadata. The server MUST reject `QUERY /tools/{name}` for tools that are not both read-only and idempotent, returning `405 Method Not Allowed`.
 
@@ -161,12 +162,17 @@ Content-Type: application/json
 }
 ```
 
-### 4.2 Config Schema — `GET /config-schema`
+### 4.2 Metadata Schema — `POST /metadata-schema`
 
-Returns a JSON Schema describing the configuration this server accepts. Returns `204 No Content` if the server does not require configuration.
+Returns a JSON Schema describing the metadata this server accepts. Returns `204 No Content` if the server does not require metadata.
+
+The client MAY include current metadata in the request body for iterative schema discovery (see ACT-SPEC.md Section 4.5). An empty body or `{}` requests the initial schema.
 
 ```
-GET /config-schema
+POST /metadata-schema
+Content-Type: application/json
+
+{}
 
 200 OK
 Content-Type: application/json
@@ -180,6 +186,31 @@ Content-Type: application/json
 }
 ```
 
+Iterative discovery example (bridge component):
+
+```
+POST /metadata-schema
+Content-Type: application/json
+
+{"metadata": {"act:remote_url": "https://api.example.com"}}
+
+200 OK
+Content-Type: application/json
+
+{
+  "type": "object",
+  "properties": {
+    "act:remote_url": { "type": "string" },
+    "std:forward": {
+      "type": "object",
+      "properties": { "api_key": { "type": "string" } },
+      "required": ["api_key"]
+    }
+  },
+  "required": ["act:remote_url"]
+}
+```
+
 ### 4.3 Tool Discovery — `POST /tools` or `QUERY /tools`
 
 Returns the list of available tools. Both `POST` and `QUERY` accept the same request body. Use `QUERY` when available (safe, cacheable); `POST` is the universal fallback.
@@ -190,7 +221,7 @@ Content-Type: application/json
 Accept-Language: en
 
 {
-  "config": { "api_key": "abc123" }
+  "metadata": { "api_key": "abc123" }
 }
 
 200 OK
@@ -216,7 +247,7 @@ Content-Type: application/json
 }
 ```
 
-For servers that do not require config, the `config` field is omitted (or the body may be empty).
+For servers that do not require metadata, the `metadata` field is omitted (or the body may be empty).
 
 The response MAY include a top-level `metadata` object with server-defined key-value pairs.
 
@@ -235,7 +266,7 @@ Content-Type: application/json
 {
   "id": "call-1",
   "arguments": { "city": "London" },
-  "config": { "api_key": "abc123" }
+  "metadata": { "api_key": "abc123" }
 }
 ```
 
@@ -243,7 +274,7 @@ Content-Type: application/json
 |---|---|---|
 | `id` | string | Caller-assigned identifier for correlation. |
 | `arguments` | object | Tool arguments conforming to `parameters_schema`. |
-| `config` | object | Optional configuration matching the config schema. |
+| `metadata` | object | Optional metadata matching the metadata schema. |
 
 **`QUERY` method for read-only idempotent tools:**
 
@@ -313,14 +344,14 @@ The `error` and `done` events are terminal — the stream closes after either.
 
 ### 4.5 Event Subscription — `POST /events` or `QUERY /events`
 
-Opens a Server-Sent Events stream for push notifications from the server. Config is passed in the request body.
+Opens a Server-Sent Events stream for push notifications from the server. Metadata is passed in the request body.
 
 ```
 QUERY /events
 Content-Type: application/json
 Accept: text/event-stream
 
-{"config": {"api_key": "abc123"}}
+{"metadata": {"api_key": "abc123"}}
 
 200 OK
 Content-Type: text/event-stream
@@ -342,7 +373,7 @@ Servers that do not support events return `404 Not Found`.
 
 ### 4.6 Resource Listing — `POST /resources` or `QUERY /resources`
 
-Returns the list of available resources. Config is passed in the request body.
+Returns the list of available resources. Metadata is passed in the request body.
 
 ```
 QUERY /resources
@@ -374,7 +405,7 @@ Content-Type: application/json
 
 ### 4.7 Resource Retrieval — `POST /resources/{uri}` or `QUERY /resources/{uri}`
 
-Returns a resource as raw bytes. Config is passed in the request body.
+Returns a resource as raw bytes. Metadata is passed in the request body.
 
 ```
 QUERY /resources/std:icon
@@ -394,21 +425,21 @@ If the resource does not exist, the server returns `404 Not Found`.
 
 ---
 
-## 5. Configuration
+## 5. Metadata
 
-Servers that require per-request context (API keys, endpoint URLs, user preferences) declare a config schema via `GET /config-schema`. Clients pass config on every request.
+Servers that require per-request context (API keys, endpoint URLs, user preferences) declare a metadata schema via `POST /metadata-schema`. Clients pass metadata on every request.
 
-### 5.1 Config Delivery
+### 5.1 Metadata Delivery
 
-Config is always passed as a `config` field in the JSON request body:
+Metadata is always passed as a `metadata` field in the JSON request body:
 
 ```json
 {
-  "config": { "api_key": "abc123" }
+  "metadata": { "api_key": "abc123" }
 }
 ```
 
-Both `POST` and `QUERY` use the same request body format. For servers that do not require config (`GET /config-schema` returns `204`), the `config` field is omitted.
+Both `POST` and `QUERY` use the same request body format. For servers that do not require metadata (`POST /metadata-schema` returns `204`), the `metadata` field is omitted.
 
 ---
 
@@ -419,7 +450,7 @@ Both `POST` and `QUERY` use the same request body format. For servers that do no
 | `kind` | HTTP Status | Description |
 |---|---|---|
 | `std:not-found` | `404 Not Found` | Tool not found. |
-| `std:invalid-args` | `422 Unprocessable Entity` | Arguments do not match schema. |
+| `std:invalid-args` | `422 Unprocessable Entity` | Arguments or metadata do not match schema. |
 | `std:timeout` | `504 Gateway Timeout` | Operation timed out. |
 | `std:capability-denied` | `403 Forbidden` | Required capability not available. |
 | `std:internal` | `500 Internal Server Error` | Unexpected server error. |
@@ -486,8 +517,18 @@ The following keys may appear on any metadata field (request, response, content 
 |---|---|---|
 | `std:traceparent` | string | W3C Trace Context `traceparent` value. Enables distributed tracing. |
 | `std:tracestate` | string | W3C Trace Context `tracestate` value. Vendor-specific trace data. |
+| `std:request-id` | string | Correlation ID for logging. |
+| `std:progress-token` | string | MCP-compatible progress token. |
 
 Servers SHOULD propagate `std:traceparent` and `std:tracestate` to/from the standard HTTP `traceparent` and `tracestate` headers.
+
+### 7.4 Bridge Metadata
+
+| Key | Type | Description |
+|---|---|---|
+| `std:forward` | object | Opaque metadata blob forwarded by bridge components to the next component in a chain. |
+
+See ACT-SPEC.md Section 8.3 for bridge forwarding details.
 
 ---
 
@@ -537,13 +578,13 @@ The ACT-HTTP protocol is versioned using SemVer `major.minor`. Patch versions ar
 Every request SHOULD include:
 
 ```
-ACT-Protocol-Version: 0.1
+ACT-Protocol-Version: 0.2
 ```
 
 Every response MUST include:
 
 ```
-ACT-Protocol-Version: 0.1
+ACT-Protocol-Version: 0.2
 ```
 
 The server's response header indicates the protocol version it is actually using for this response.
@@ -563,7 +604,7 @@ Version compatibility follows standard SemVer semantics:
    - **Compatible:** responds normally with its effective version in the `ACT-Protocol-Version` response header.
    - **Incompatible:** responds with `406 Not Acceptable` and a JSON body listing supported versions:
      ```json
-     {"supported_versions": ["0.1"]}
+     {"supported_versions": ["0.2"]}
      ```
 3. If the client omits the header, the server uses its current version and includes it in the response header. The client SHOULD check the response header and verify compatibility.
 
@@ -572,8 +613,8 @@ Version compatibility follows standard SemVer semantics:
 ## 12. Conformance
 
 A conformant ACT HTTP server:
-- MUST implement `GET /info`, `GET /config-schema`, `POST /tools`, `QUERY /tools`, and `POST /tools/{name}`.
-- MUST support both `POST` and `QUERY` for every endpoint that accepts configuration (`/tools`, `/events`, `/resources`, `/resources/{uri}`).
+- MUST implement `GET /info`, `POST /metadata-schema`, `QUERY /metadata-schema`, `POST /tools`, `QUERY /tools`, and `POST /tools/{name}`.
+- MUST support both `POST` and `QUERY` for every endpoint that accepts metadata (`/metadata-schema`, `/tools`, `/events`, `/resources`, `/resources/{uri}`).
 - MUST support `QUERY /tools/{name}` for tools that declare both `std:read-only` and `std:idempotent`.
 - MUST include the `ACT-Protocol-Version` header in every response.
 - MUST return `406 Not Acceptable` when the client requests an incompatible protocol version.

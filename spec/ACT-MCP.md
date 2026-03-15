@@ -1,6 +1,6 @@
 # ACT–MCP Mapping Guide (Informative)
 
-**Version 0.1.3 (Draft)**
+**Version 0.2.0 (Draft)**
 
 This document describes how ACT components can be exposed as MCP-compatible servers. It is an **informative guide** for implementors of MCP↔ACT adapters, not a normative specification. Implementations MAY deviate from these recommendations where appropriate.
 
@@ -20,8 +20,8 @@ The MCP `initialize` response should include:
 {
   "protocolVersion": "2025-11-25",
   "serverInfo": {
-    "name": "<component-info.name>",
-    "version": "<component-info.version>"
+    "name": "<name from WASM metadata>",
+    "version": "<version from WASM metadata>"
   },
   "capabilities": {
     "tools": {},
@@ -32,16 +32,16 @@ The MCP `initialize` response should include:
 
 Include `resources` in capabilities if the component exports `resource-provider`. Event notifications are sent proactively and do not require a capability declaration.
 
-### 1.2 Config Resolution
+### 1.2 Metadata Resolution
 
-For MCP stdio, config is typically fixed for the lifetime of the process. The adapter obtains config from:
+For MCP stdio, metadata is typically fixed for the lifetime of the process. The adapter obtains metadata from:
 
-1. Command-line arguments or a config file provided at server startup.
+1. Command-line arguments or a configuration file provided at server startup.
 2. Extensions in the MCP `initialize` request params (if the client provides them).
 
-The adapter caches the resolved config and passes it to every `list-tools` and `call-tool` invocation.
+The adapter caches the resolved metadata and passes it to every `list-tools` and `call-tool` invocation.
 
-For components that do not require config (`get-config-schema` returns `none`), the adapter passes `none`.
+For components that do not require metadata (`get-metadata-schema([])` returns `none`), the adapter passes empty metadata.
 
 ---
 
@@ -49,7 +49,7 @@ For components that do not require config (`get-config-schema` returns `none`), 
 
 ### 2.1 Tool Discovery — `tools/list`
 
-When the MCP client calls `tools/list`, the adapter calls `list-tools(config)` and translates each `tool-definition` to an MCP tool object.
+When the MCP client calls `tools/list`, the adapter calls `list-tools(metadata)` and translates each `tool-definition` to an MCP tool object.
 
 **Recommended mapping:**
 
@@ -73,8 +73,8 @@ When the MCP client calls `tools/call`:
 1. The adapter constructs a `tool-call`:
    - `name` — from `params.name`
    - `arguments` — `params.arguments` converted from JSON to dCBOR bytes
-   - `metadata` — empty (or populated from MCP extensions if applicable)
-2. The adapter calls `call-tool(config, call)` with the cached config.
+   - `metadata` — the cached metadata (merged with any per-request metadata from MCP extensions)
+2. The adapter calls `call-tool(call)`.
 3. The adapter receives a `stream<stream-event>` and reads events from it.
 
 **Result mapping (success):**
@@ -159,7 +159,7 @@ If the component exports `event-provider` (`act:events` package), the adapter ma
 | `std:resources:changed` | `notifications/resources/list_changed` |
 | Custom kinds | Adapter-defined (MAY use MCP notification extensions) |
 
-The adapter calls `subscribe(config)` when the MCP session starts and reads events from the stream. For each event, the adapter sends the corresponding MCP notification to the client.
+The adapter calls `subscribe(metadata)` when the MCP session starts and reads events from the stream. For each event, the adapter sends the corresponding MCP notification to the client.
 
 When the MCP session ends, the adapter drops the event stream handle.
 
@@ -171,7 +171,7 @@ If the component exports `resource-provider` (`act:resources` package), the adap
 
 **Resource discovery — `resources/list`:**
 
-The adapter calls `list-resources(config)` and maps each `resource-info` to an MCP resource:
+The adapter calls `list-resources(metadata)` and maps each `resource-info` to an MCP resource:
 
 | ACT `resource-info` | MCP `Resource` |
 |---|---|
@@ -181,4 +181,4 @@ The adapter calls `list-resources(config)` and maps each `resource-info` to an M
 
 **Resource retrieval — `resources/read`:**
 
-The adapter calls `get-resource(config, uri)`, reads the byte stream, and returns the content as MCP resource content.
+The adapter calls `get-resource(metadata, uri)`, reads the byte stream, and returns the content as MCP resource content.

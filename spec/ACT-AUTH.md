@@ -1,21 +1,21 @@
 # ACT Authentication Best Practices
 
-**Version 0.1.3 (Draft)**
+**Version 0.2.0 (Draft)**
 
-A guide to authentication patterns in ACT. This document covers two levels of authentication: transport-level (client→host) and config-level (component→external service).
+A guide to authentication patterns in ACT. This document covers two levels of authentication: transport-level (client→host) and metadata-level (component→external service).
 
 ---
 
 ## 1. Two Levels of Authentication
 
-| | Transport-level auth | Config-level auth |
+| | Transport-level auth | Metadata-level auth |
 |---|---|---|
 | **Purpose** | Client authenticates to the ACT host | Component authenticates to external APIs |
-| **Where** | HTTP headers, transport mechanism | `config` parameter (dCBOR) |
+| **Where** | HTTP headers, transport mechanism | `metadata` parameter (key-value pairs) |
 | **Who validates** | Host | External service |
-| **Example** | `Authorization: Bearer <token>` header | `"std:bearer-token": "<token>"` in config |
+| **Example** | `Authorization: Bearer <token>` header | `"std:api-key": "<key>"` in metadata |
 
-These two levels are independent. A request may have transport-level auth (proving the client's identity to the host) and config-level auth (providing credentials for the component to call an external API).
+These two levels are independent. A request may have transport-level auth (proving the client's identity to the host) and metadata-level auth (providing credentials for the component to call an external API).
 
 ---
 
@@ -50,13 +50,13 @@ The OIDC flow is outside ACT's scope. See OpenID Connect Core 1.0.
 
 ---
 
-## 3. Config-Level Authentication
+## 3. Metadata-Level Authentication
 
-Config-level auth provides credentials for the component to authenticate with external services. Credentials are passed as fields in the `config` parameter.
+Metadata-level auth provides credentials for the component to authenticate with external services. Credentials are passed as keys in the `metadata` parameter.
 
-### 3.1 Well-Known Config Keys
+### 3.1 Well-Known Metadata Keys for Auth
 
-Components SHOULD use these well-known keys in their config schema:
+Components SHOULD use these well-known keys in their metadata schema:
 
 | Key | Type | Description |
 |-----|------|-------------|
@@ -65,7 +65,7 @@ Components SHOULD use these well-known keys in their config schema:
 | `std:username` | string | Username for basic auth |
 | `std:password` | string | Password for basic auth |
 
-### 3.2 Config Schema Example
+### 3.2 Metadata Schema Example
 
 A component that requires an API key:
 
@@ -109,21 +109,21 @@ The host manages credentials on behalf of components. This section describes rec
 Hosts SHOULD support multiple credential sources:
 
 - **Environment variables** — `ACT_WEATHER_API_KEY=...`
-- **Config files** — per-component config in YAML/JSON
+- **Config files** — per-component metadata in YAML/JSON
 - **Secret stores** — HashiCorp Vault, AWS Secrets Manager, etc.
 
-### 4.2 Per-Component Config Mapping
+### 4.2 Per-Component Metadata Mapping
 
-The host maps external credential sources to component config:
+The host maps external credential sources to component metadata:
 
 ```yaml
 # Example host config (not part of ACT spec)
 components:
   weather-tools:
-    config:
+    metadata:
       std:api-key: ${WEATHER_API_KEY}
   github-tools:
-    config:
+    metadata:
       std:bearer-token: ${GITHUB_TOKEN}
 ```
 
@@ -134,7 +134,7 @@ When a component needs an OIDC token for an external service:
 1. The host is configured with OIDC provider details (issuer, client ID, client secret).
 2. The host performs the OIDC flow (client credentials or authorization code).
 3. The host caches the access token and handles refresh.
-4. The host passes the fresh token as `std:bearer-token` in config on every call.
+4. The host passes the fresh token as `std:bearer-token` in metadata on every call.
 
 The component receives a ready-to-use token — it does not participate in the OIDC flow.
 
@@ -142,16 +142,15 @@ The component receives a ready-to-use token — it does not participate in the O
 
 ## 5. Security Considerations
 
-### 5.1 Config Transport
+### 5.1 Metadata Transport
 
-- **HTTPS required** — config contains credentials; all HTTP transport MUST use TLS in production.
-- **Request body preferred** — config in `POST`/`QUERY` request body is safer than headers (not logged by default, not cached by proxies).
-- **`X-ACT-Config` header** — when using the GET fallback, the header value is base64-encoded JSON. Proxies and CDNs MAY log headers; deployments SHOULD ensure headers with credentials are not logged.
+- **HTTPS required** — metadata may contain credentials; all HTTP transport MUST use TLS in production.
+- **Request body preferred** — metadata in `POST`/`QUERY` request body is safer than headers (not logged by default, not cached by proxies).
 
-### 5.2 Metadata
+### 5.2 Sensitive Keys
 
-- **Never store secrets in metadata.** Metadata is not encrypted and may be logged, cached, or forwarded by hosts and transport adapters.
-- Credentials belong in `config`, not in `tool-call.metadata`.
+- Hosts SHOULD treat metadata keys listed in Section 3.1 as sensitive and avoid logging their values.
+- Hosts SHOULD NOT forward auth-related metadata keys to external consumers or include them in error responses.
 
 ### 5.3 Storage
 
@@ -161,9 +160,9 @@ The component receives a ready-to-use token — it does not participate in the O
 
 ### 5.4 Component Isolation
 
-- WASM sandbox prevents components from accessing each other's config.
-- The host MUST NOT pass one component's config to another component.
-- The host SHOULD validate config schema before passing to the component.
+- WASM sandbox prevents components from accessing each other's metadata.
+- The host MUST NOT pass one component's metadata to another component.
+- The host SHOULD validate metadata schema before passing to the component.
 
 ---
 
@@ -178,7 +177,7 @@ Content-Type: application/json
 {
   "id": "call-1",
   "arguments": { "city": "London" },
-  "config": { "std:api-key": "wk_abc123" }
+  "metadata": { "std:api-key": "wk_abc123" }
 }
 ```
 
@@ -191,7 +190,7 @@ Content-Type: application/json
 {
   "id": "call-2",
   "arguments": { "org": "acme" },
-  "config": { "std:bearer-token": "ghp_xxxxxxxxxxxx" }
+  "metadata": { "std:bearer-token": "ghp_xxxxxxxxxxxx" }
 }
 ```
 
@@ -204,16 +203,16 @@ Content-Type: application/json
 {
   "id": "call-3",
   "arguments": { "sql": "SELECT 1" },
-  "config": {
+  "metadata": {
     "std:username": "readonly",
     "std:password": "s3cret"
   }
 }
 ```
 
-### 6.4 Transport + Config Auth Combined
+### 6.4 Transport + Metadata Auth Combined
 
-Client authenticates to host (transport-level) AND provides credentials for external service (config-level):
+Client authenticates to host (transport-level) AND provides credentials for external service (metadata-level):
 
 ```
 POST /tools/get_weather
@@ -223,6 +222,6 @@ Content-Type: application/json
 {
   "id": "call-4",
   "arguments": { "city": "London" },
-  "config": { "std:api-key": "wk_abc123" }
+  "metadata": { "std:api-key": "wk_abc123" }
 }
 ```
