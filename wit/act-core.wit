@@ -1,0 +1,134 @@
+package act:core@0.2.0;
+
+interface types {
+
+  /// A localizable text value.
+  ///
+  /// - `plain` — an opaque UTF-8 string. If `std:default-language` is declared
+  ///   in the `act:component` section, the string is assumed to be in that language.
+  ///   Otherwise, the language is undefined.
+  /// - `localized` — a list of (BCP 47 language-tag, text) pairs.
+  ///   If `std:default-language` is declared, SHOULD include an entry for it.
+  variant localized-string {
+    plain(string),
+    localized(list<tuple<string, string>>),
+  }
+
+  /// Key-value metadata. Keys are namespaced strings, values are CBOR-encoded.
+  /// Components produce valid CBOR; the host canonicalizes to dCBOR if needed.
+  /// Well-known keys use the `std:` prefix (e.g. "std:read-only", "std:timeout-ms").
+  /// Third-party keys use their own namespace (e.g. "acme:priority").
+  type metadata = list<tuple<string, list<u8>>>;
+
+
+  // ──────────────────────────────────────────────
+  //  Tool-level types
+  // ──────────────────────────────────────────────
+
+  /// Full definition of a tool, returned by list-tools.
+  record tool-definition {
+    name: string,
+    description: localized-string,
+    /// Parameter schema as a JSON Schema string (default).
+    /// Hosts MAY also accept JSON Structure (json-structure.org),
+    /// detected via the `$schema` field.
+    parameters-schema: string,
+    /// Well-known keys: std:read-only, std:idempotent, std:destructive,
+    /// std:usage-hints, std:anti-usage-hints, std:examples, std:tags, std:timeout-ms,
+    /// std:streaming.
+    metadata: metadata,
+  }
+
+
+  // ──────────────────────────────────────────────
+  //  Call / Result types
+  // ──────────────────────────────────────────────
+
+  /// A request to invoke a tool.
+  record tool-call {
+    /// Tool name, as returned by list-tools.
+    name: string,
+    /// Deterministically Encoded CBOR arguments (RFC 8949 §4.2).
+    /// Validated by the host against parameter schemas before being passed to the component.
+    arguments: list<u8>,
+    metadata: metadata,
+  }
+
+  /// A single piece of content in a tool's result stream.
+  record content-part {
+    /// Payload bytes. Interpretation depends on `mime-type`:
+    /// - `text/*` — raw UTF-8 text
+    /// - `application/cbor` — CBOR-encoded structured data
+    /// - `application/json` — JSON
+    /// - `image/*` — binary image data
+    /// - absent or other — opaque bytes (application/octet-stream)
+    data: list<u8>,
+    /// MIME type of the data. If absent, data is treated as opaque bytes.
+    mime-type: option<string>,
+    metadata: metadata,
+  }
+
+  /// Structured error returned by tools.
+  /// Well-known kind values: std:not-found, std:invalid-args, std:timeout,
+  /// std:capability-denied, std:internal. Custom kinds use namespaced strings.
+  record tool-error {
+    kind: string,
+    message: localized-string,
+    metadata: metadata,
+  }
+
+  /// A single event in the tool result stream.
+  /// A `stream-event::error` is terminal — the stream closes after it.
+  variant stream-event {
+    content(content-part),
+    error(tool-error),
+  }
+
+
+  // ──────────────────────────────────────────────
+  //  Response wrappers
+  // ──────────────────────────────────────────────
+
+  /// Response from list-tools.
+  record list-tools-response {
+    metadata: metadata,
+    tools: list<tool-definition>,
+  }
+}
+
+/// Component-level metadata (name, version, description, capabilities) is stored
+/// in the `act:component` WASM custom section (CBOR-encoded) and standard WASM
+/// metadata fields, not as an exported function.
+
+interface tool-provider {
+  use types.{
+    tool-definition,
+    tool-call,
+    stream-event,
+    list-tools-response,
+    tool-error,
+    metadata,
+  };
+
+  /// Returns a JSON Schema (type "object") describing the metadata keys
+  /// this component accepts. Returns `none` if no metadata is required.
+  ///
+  /// When called with empty metadata, the component MUST return immediately
+  /// without performing any network I/O.
+  ///
+  /// The host MAY call this multiple times with progressively filled
+  /// metadata to support iterative schema discovery for bridge components.
+  /// Subsequent calls with non-empty metadata MAY perform network I/O
+  /// (e.g. fetching a remote component's schema).
+  get-metadata-schema: async func(metadata: metadata) -> option<string>;
+
+  /// Returns the list of tools available for the given metadata.
+  /// Async because bridge components may need to fetch remote schemas.
+  list-tools: async func(metadata: metadata) -> result<list-tools-response, tool-error>;
+
+  /// Invokes a tool and returns a stream of results.
+  /// Metadata is carried inside `tool-call.metadata`.
+  /// Each stream-event is either content or a terminal error.
+  call-tool: async func(call: tool-call) -> stream<stream-event>;
+}
+

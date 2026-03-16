@@ -1,0 +1,35 @@
+package act:core@0.2.0;
+
+interface resource-types {
+  use types.{localized-string, metadata};
+
+  /// Describes a resource available from the component.
+  record resource-info {
+    /// Resource URI. Well-known: "std:icon".
+    uri: string,
+    /// Expected MIME type of the resource.
+    mime-type: option<string>,
+    description: localized-string,
+    metadata: metadata,
+  }
+
+  /// Response from get-resource.
+  record resource-response {
+    /// Actual MIME type (may differ from resource-info listing).
+    mime-type: option<string>,
+    metadata: metadata,
+    body: stream<u8>,
+  }
+}
+
+interface resource-provider {
+  use resource-types.{resource-info, resource-response};
+  use types.{metadata};
+
+  /// Returns the list of resources available from this component.
+  list-resources: async func(metadata: metadata) -> list<resource-info>;
+
+  /// Returns a resource by URI.
+  /// Returns a resource-response with mime-type, metadata, and a byte stream.
+  get-resource: async func(metadata: metadata, uri: string) -> resource-response;
+}
