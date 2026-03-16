@@ -26,6 +26,7 @@ Used in the `act:component` WASM custom section and `GET /info` HTTP response.
 | `std:default-language` | string | BCP 47 language tag for the component's default language. Optional. |
 | `std:capabilities` | array | List of capability objects (`{id, required, description?}`). |
 | `std:skill` | string | Detailed instructions for AI agents (markdown). |
+| `std:fs:mount-root` | string | Guest path where host filesystem is mounted (default: `/`). |
 
 ---
 
@@ -134,7 +135,21 @@ Well-known resource identifiers for `resource-provider`.
 
 ---
 
-## 11. WASM Custom Sections
+## 11. Capability Identifiers
+
+Used in `std:capabilities` capability objects. Hosts SHOULD recognize these identifiers.
+
+| Capability ID | Description |
+|--------------|-------------|
+| `wasi:filesystem` | Filesystem access (read/write files and directories). |
+| `wasi:sockets` | Outbound TCP and UDP connections. |
+| `wasi:http` | Outbound HTTP requests. |
+
+Third-party capabilities use their own namespace (e.g. `acme:gpu/compute`). Hosts that do not recognize a capability identifier SHOULD treat it according to their enforcement mode.
+
+---
+
+## 12. WASM Custom Sections
 
 | Section name | Format | Description |
 |-------------|--------|-------------|
@@ -142,7 +157,7 @@ Well-known resource identifiers for `resource-provider`.
 
 ---
 
-## 12. MIME Types
+## 13. MIME Types
 
 Used in `content-part.mime-type` and content negotiation.
 
