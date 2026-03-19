@@ -531,8 +531,8 @@ If `get-metadata-schema` returns `none`, the host passes metadata through withou
 The `content-part.data` field is `list<u8>` — raw bytes. The `mime-type` field determines how to interpret them:
 
 - **`text/*`** — raw UTF-8 text.
+- **`application/json`** — raw UTF-8 text (JSON). Treated the same as `text/*` for encoding purposes.
 - **`application/cbor`** — CBOR-encoded structured data. Components produce valid CBOR; the host canonicalizes to dCBOR before passing to external consumers.
-- **`application/json`** — JSON.
 - **`image/*`** — binary image data.
 - **absent or other** — opaque bytes (`application/octet-stream`).
 
