@@ -25,7 +25,6 @@ Used in the `act:component` WASM custom section and `GET /info` HTTP response.
 | `std:description` | string or localized map | Human-readable description. |
 | `std:default-language` | string | BCP 47 language tag for the component's default language. Optional. |
 | `std:capabilities` | array | List of capability objects (`{id, required, description?}`). |
-| `std:skill` | string | Detailed instructions for AI agents (markdown). |
 | `std:fs:mount-root` | string | Guest path where host filesystem is mounted (default: `/`). |
 
 ---
@@ -154,6 +153,7 @@ Third-party capabilities use their own namespace (e.g. `acme:gpu/compute`). Host
 | Section name | Format | Description |
 |-------------|--------|-------------|
 | `act:component` | CBOR map | Component metadata (Section 2 keys). |
+| `act:skill` | Uncompressed tar | Agent Skills package. See `ACT-AGENTSKILLS.md`. |
 
 ---
 

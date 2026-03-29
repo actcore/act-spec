@@ -113,7 +113,7 @@ Returned by the info endpoint. Uses the same format as the `act:component` WASM 
 | `std:default-language` | string | Optional BCP 47 language tag for the component's default language. |
 | `std:capabilities` | array | Optional list of capabilities the component requires (see Section 8). |
 
-Additional keys (e.g. `std:skill`, `acme:priority`) MAY be present. Clients MUST ignore unrecognized keys.
+Additional keys (e.g. `acme:priority`) MAY be present. Clients MUST ignore unrecognized keys.
 
 ---
 

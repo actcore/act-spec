@@ -78,7 +78,6 @@ The custom section contains a CBOR-encoded map. Keys are namespaced strings — 
 | `std:default-language` | tstr | MAY | BCP 47 language tag for the component's default language. If absent, `plain` strings have no declared language. |
 | `std:description` | tstr or map | MAY | Localized description. Plain string or `{"en": "...", "ru": "..."}` map. |
 | `std:capabilities` | array | MAY | List of capability objects (see below). |
-| `std:skill` | tstr | MAY | Detailed instructions for AI agents (markdown). |
 
 The standard WASM metadata fields `name` and `version` (set via `wasm-tools metadata add` or equivalent) provide the component's name and version. These MUST be present.
 
@@ -101,7 +100,6 @@ Custom keys follow the same namespacing convention as metadata elsewhere in the 
   "std:capabilities": [
     {"id": "wasi:http/outgoing-handler", "required": true}
   ],
-  "std:skill": "Use this component to fetch weather forecasts..."
 }
 ```
 
