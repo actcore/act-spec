@@ -4,11 +4,11 @@ interface types {
 
   /// A localizable text value.
   ///
-  /// - `plain` — an opaque UTF-8 string. If `std:default-language` is declared
+  /// - `plain` — an opaque UTF-8 string. If `std.default-language` is declared
   ///   in the `act:component` section, the string is assumed to be in that language.
   ///   Otherwise, the language is undefined.
   /// - `localized` — a list of (BCP 47 language-tag, text) pairs.
-  ///   If `std:default-language` is declared, SHOULD include an entry for it.
+  ///   If `std.default-language` is declared, SHOULD include an entry for it.
   variant localized-string {
     plain(string),
     localized(list<tuple<string, string>>),
@@ -97,8 +97,8 @@ interface types {
 }
 
 /// Component-level metadata (name, version, description, capabilities) is stored
-/// in the `act:component` WASM custom section (CBOR-encoded) and standard WASM
-/// metadata fields, not as an exported function.
+/// in the `act:component` WASM custom section (CBOR-encoded), not as an exported
+/// function.
 
 interface tool-provider {
   use types.{

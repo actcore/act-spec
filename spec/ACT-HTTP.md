@@ -95,25 +95,29 @@ Returned by the info endpoint. Uses the same format as the `act:component` WASM 
 
 ```json
 {
-  "std:name": "weather-tools",
-  "std:version": "1.2.0",
-  "std:description": "Weather data tools",
-  "std:default-language": "en",
-  "std:capabilities": {
-    "wasi:http": {}
+  "std": {
+    "name": "weather-tools",
+    "version": "1.2.0",
+    "description": "Weather data tools",
+    "default-language": "en",
+    "capabilities": {
+      "wasi:http": {}
+    }
   }
 }
 ```
 
+**`std` table fields:**
+
 | Field | Type | Description |
 |---|---|---|
-| `std:name` | string | Component name. |
-| `std:version` | string | Component SemVer version string. |
-| `std:description` | string | Human-readable description. |
-| `std:default-language` | string | Optional BCP 47 language tag for the component's default language. |
-| `std:capabilities` | object | Optional map of capability declarations (see Section 8). |
+| `name` | string | Component name. Required. |
+| `version` | string | Component SemVer version string. Required. |
+| `description` | string | Human-readable description. |
+| `default-language` | string | BCP 47 language tag for the component's default language. |
+| `capabilities` | object | Map of capability declarations (see Section 8). |
 
-Additional keys (e.g. `acme:priority`) MAY be present. Clients MUST ignore unrecognized keys.
+Additional namespaces (e.g. `acme`) MAY be present. Clients MUST ignore unrecognized namespaces.
 
 ---
 
@@ -158,10 +162,12 @@ GET /info
 Content-Type: application/json
 
 {
-  "std:name": "weather-tools",
-  "std:version": "1.2.0",
-  "std:description": "Weather data tools",
-  "std:default-language": "en"
+  "std": {
+    "name": "weather-tools",
+    "version": "1.2.0",
+    "description": "Weather data tools",
+    "default-language": "en"
+  }
 }
 ```
 
@@ -521,13 +527,15 @@ See ACT-SPEC.md Section 8.3 for bridge forwarding details.
 
 ## 8. Capabilities
 
-The `std:capabilities` map in component info declares external dependencies. Each key is a capability identifier; the value is an object with capability-specific parameters (may be empty):
+The `std.capabilities` map in component info declares external dependencies. Each key is a capability identifier; the value is an object with capability-specific parameters (may be empty):
 
 ```json
 {
-  "std:capabilities": {
-    "wasi:http": {},
-    "wasi:filesystem": { "mount-root": "/data" }
+  "std": {
+    "capabilities": {
+      "wasi:http": {},
+      "wasi:filesystem": { "mount-root": "/data" }
+    }
   }
 }
 ```

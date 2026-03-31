@@ -11,7 +11,7 @@ info:
     request/response formats. `QUERY` is safe and cacheable; `POST` is the universal fallback.
 
     See ACT-HTTP.md for the full prose specification.
-    See ACT-CONSTANTS.md for the authoritative list of well-known `std:` constants.
+    See ACT-CONSTANTS.md for the authoritative list of well-known constants.
   license:
     name: Apache-2.0
 
@@ -415,29 +415,36 @@ components:
       type: object
       description: |
         Component metadata. Same format as the `act:component` WASM custom section.
-        Uses `std:` prefixed keys. Additional keys MAY be present and MUST be ignored
-        if unrecognized.
+        Uses namespaced tables; well-known metadata lives in the `std` table.
+        Additional namespaces MAY be present and MUST be ignored if unrecognized.
       properties:
-        "std:name":
-          type: string
-          description: Component name.
-          example: weather-tools
-        "std:version":
-          type: string
-          description: SemVer version.
-          example: "1.2.0"
-        "std:description":
-          type: string
-          description: Human-readable description.
-          example: Weather data tools
-        "std:default-language":
-          type: string
-          description: BCP 47 language tag for the component's default language.
-          example: en
-        "std:capabilities":
-          type: array
-          items:
-            $ref: "#/components/schemas/Capability"
+        std:
+          type: object
+          description: Standard component metadata.
+          properties:
+            name:
+              type: string
+              description: Component name.
+              example: weather-tools
+            version:
+              type: string
+              description: SemVer version.
+              example: "1.2.0"
+            description:
+              type: string
+              description: Human-readable description.
+              example: Weather data tools
+            default-language:
+              type: string
+              description: BCP 47 language tag for the component's default language.
+              example: en
+            capabilities:
+              type: array
+              items:
+                $ref: "#/components/schemas/Capability"
+          required:
+            - name
+            - version
       additionalProperties: true
 
     Capability:

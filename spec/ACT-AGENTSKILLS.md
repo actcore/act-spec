@@ -57,7 +57,7 @@ The archive MAY contain additional files and directories as defined by the Agent
 
 ### 2.4 SKILL.md Requirements
 
-The `SKILL.md` file MUST conform to the [Agent Skills Specification](https://agentskills.io/specification). The `name` field SHOULD match the component's `std:name` from the `act:component` section.
+The `SKILL.md` file MUST conform to the [Agent Skills Specification](https://agentskills.io/specification). The `name` field SHOULD match the component's `std.name` from the `act:component` section.
 
 ### 2.5 ACT Marker
 

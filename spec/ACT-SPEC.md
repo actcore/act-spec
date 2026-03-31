@@ -69,35 +69,54 @@ package act:core@0.2.0;
 
 Component-level metadata is stored in the WASM binary as a custom section named `act:component`, not as an exported function. This allows hosts, registries, and tooling to read component information without instantiating the component or executing any code.
 
-The custom section contains a CBOR-encoded map. Keys are namespaced strings — well-known keys use the `std:` prefix, third-party keys use their own namespace (e.g. `acme:priority`). Values are CBOR-encoded.
+The custom section contains a CBOR-encoded map of namespaced tables. Well-known metadata lives in the `std` table, third-party extensions use their own namespace (e.g. `acme`). This structure maps directly to TOML (`act.toml`) for authoring convenience.
 
-**Well-known keys:**
+**`std` table keys:**
 
 | Key | CBOR type | Required | Description |
 |-----|-----------|----------|-------------|
-| `std:default-language` | tstr | MAY | BCP 47 language tag for the component's default language. If absent, `plain` strings have no declared language. |
-| `std:description` | tstr or map | MAY | Localized description. Plain string or `{"en": "...", "ru": "..."}` map. |
-| `std:capabilities` | map | MAY | Map of capability declarations keyed by capability identifier. Presence of a key declares that the component uses this capability. The value is an object with capability-specific parameters (may be empty). See Section 7. |
+| `name` | tstr | MUST | Component name. |
+| `version` | tstr | MUST | SemVer version string. |
+| `description` | tstr or map | MAY | Localized description. Plain string or `{"en": "...", "ru": "..."}` map. |
+| `default-language` | tstr | MAY | BCP 47 language tag for the component's default language. If absent, `plain` strings have no declared language. |
+| `capabilities` | map | MAY | Map of capability declarations keyed by capability identifier. Presence of a key declares that the component uses this capability. The value is an object with capability-specific parameters (may be empty). See Section 7. |
 
-The standard WASM metadata fields `name` and `version` (set via `wasm-tools metadata add` or equivalent) provide the component's name and version. These MUST be present.
+Custom namespaces follow the same convention. Hosts and tooling MUST ignore unrecognized namespaces and keys.
 
-Custom keys follow the same namespacing convention as metadata elsewhere in the protocol. Hosts and tooling MUST ignore unrecognized keys.
+Components SHOULD also set standard WASM metadata fields `name` and `version` (via `wasm-tools metadata add` or equivalent) for compatibility with WASM registries and tooling.
 
 **Example (CBOR diagnostic notation):**
 
 ```cbor
 {
-  "std:default-language": "en",
-  "std:description": "Weather data tools",
-  "std:capabilities": {
-    "wasi:http": {}
-  },
+  "std": {
+    "name": "weather-tools",
+    "version": "1.2.0",
+    "description": "Weather data tools",
+    "default-language": "en",
+    "capabilities": {
+      "wasi:http": {}
+    }
+  }
 }
 ```
 
+**Corresponding `act.toml`:**
+
+```toml
+[std]
+name = "weather-tools"
+version = "1.2.0"
+description = "Weather data tools"
+default-language = "en"
+
+[std.capabilities."wasi:http"]
+```
+
 **Tooling:**
-- SDK (`#[act_component]`) generates the custom section automatically at compile time.
-- Non-SDK authors use `wasm-tools metadata add` for name/version and a CLI tool (e.g. `act component-info set`) to write the `act:component` section.
+- Rust SDK (`#[act_component]`) reads `act.toml` and generates the custom section automatically at compile time.
+- Python components use `componentize-py`; the build step converts `act.toml` to CBOR via `tomllib` + `cbor2`.
+- `wasm-tools metadata add` sets standard WASM metadata for registry compatibility.
 
 ### 3.3 Types Interface
 
@@ -106,11 +125,11 @@ interface types {
 
   /// A localizable text value.
   ///
-  /// - `plain` — an opaque UTF-8 string. If `std:default-language` is declared
+  /// - `plain` — an opaque UTF-8 string. If `std.default-language` is declared
   ///   in the `act:component` section, the string is assumed to be in that language.
   ///   Otherwise, the language is undefined.
   /// - `localized` — a list of (BCP 47 language-tag, text) pairs.
-  ///   If `std:default-language` is declared, SHOULD include an entry for it.
+  ///   If `std.default-language` is declared, SHOULD include an entry for it.
   variant localized-string {
     plain(string),
     localized(list<tuple<string, string>>),
@@ -322,7 +341,7 @@ interface resource-provider {
 ### 4.1 Loading
 
 1. The host loads the `.wasm` component binary.
-2. The host reads the `act:component` custom section (CBOR-encoded) and standard WASM metadata (`name`, `version`) to obtain component information. If the `act:component` section is absent, the host MUST reject the component.
+2. The host reads the `act:component` custom section (CBOR-encoded) to obtain component information. The `std.name` and `std.version` fields MUST be present. If the `act:component` section is absent, the host MUST reject the component.
 3. The host links WASI and other imports according to its capability policy. The host MAY use `capabilities` from the custom section to make linking decisions proactively.
 4. The host calls `tool-provider.get-metadata-schema([])` to determine whether the component requires metadata.
 5. The component is now ready to accept calls (if no metadata is required).
@@ -414,16 +433,16 @@ If the component exports `resource-provider`:
 
 ### 5.1 Default Language
 
-A component MAY declare a default language via `std:default-language` in the `act:component` custom section (a BCP 47 tag). This is the language the component author writes in natively.
+A component MAY declare a default language via `std.default-language` in the `act:component` custom section (a BCP 47 tag). This is the language the component author writes in natively.
 
-If `std:default-language` is not declared, `plain` strings have no declared language and the host treats them as opaque UTF-8 text.
+If `std.default-language` is not declared, `plain` strings have no declared language and the host treats them as opaque UTF-8 text.
 
 ### 5.2 Localized Strings
 
 The `localized-string` type is a variant with two cases:
 
-- **`plain(string)`** — an opaque UTF-8 string. If `std:default-language` is declared, the string is assumed to be in that language. Otherwise, the language is undefined.
-- **`localized(list<tuple<string, string>>)`** — a list of `(language-tag, text)` pairs. If `std:default-language` is declared, the component SHOULD include an entry for it.
+- **`plain(string)`** — an opaque UTF-8 string. If `std.default-language` is declared, the string is assumed to be in that language. Otherwise, the language is undefined.
+- **`localized(list<tuple<string, string>>)`** — a list of `(language-tag, text)` pairs. If `std.default-language` is declared, the component SHOULD include an entry for it.
 
 All human-readable text intended for agents or end users is represented as `localized-string`.
 
@@ -445,7 +464,7 @@ Examples (CBOR diagnostic notation):
 {"en": "Weather data tools", "ru": "Инструменты для погоды"}
 ```
 
-Hosts and SDKs MUST handle both forms: a bare text string is `plain`, a map of strings is `localized`. This applies to the `act:component` custom section (`std:description`), metadata values containing localized strings, and any external CBOR/JSON representation.
+Hosts and SDKs MUST handle both forms: a bare text string is `plain`, a map of strings is `localized`. This applies to the `act:component` custom section (`std.description`), metadata values containing localized strings, and any external CBOR/JSON representation.
 
 ### 5.4 Host Resolution
 
@@ -456,7 +475,7 @@ For `plain(text)`:
 
 For `localized(entries)`:
 1. Select the best match using the host's language resolution strategy (e.g. `Accept-Language` matching).
-2. If no match is found, fall back to `std:default-language` (if declared), then to the first available entry.
+2. If no match is found, fall back to `std.default-language` (if declared), then to the first available entry.
 
 The component is not involved in language selection — it returns all available localizations, and the host or adapter chooses.
 
@@ -553,11 +572,11 @@ Language-specific SDKs SHOULD generate parameter schemas from native type signat
 
 Capabilities represent host-side resources — external dependencies such as network access or filesystem — that a component may need. Only resources that require explicit host linking are declared; ambient capabilities (e.g. `wasi:clocks`, `wasi:random`) are always available and are not declared.
 
-A component declares its capabilities through the `std:capabilities` map in the `act:component` custom section. The host uses this declaration to make linking decisions and to communicate capability requirements to clients (agents, UIs).
+A component declares its capabilities through the `std.capabilities` map in the `act:component` custom section. The host uses this declaration to make linking decisions and to communicate capability requirements to clients (agents, UIs).
 
 ### 7.2 Declaration
 
-The component declares each capability by adding its identifier as a key in the `std:capabilities` map. The value is an object containing capability-specific parameters; an empty object `{}` means the capability is used without specific restrictions. If a capability identifier is absent from the map, the component does not use that capability.
+The component declares each capability by adding its identifier as a key in the `std.capabilities` map. The value is an object containing capability-specific parameters; an empty object `{}` means the capability is used without specific restrictions. If a capability identifier is absent from the map, the component does not use that capability.
 
 Within a declared capability, an absent parameter means the parameter is unrestricted (the host uses its default).
 
@@ -681,9 +700,9 @@ Hosts MUST NOT reject `tool-error` values with unrecognized `kind` strings. Unkn
 
 A conformant ACT component:
 - MUST export the `act-world` world as defined in Section 3.5.
-- MUST include standard WASM metadata fields `name` and `version`.
-- MUST include an `act:component` custom section with a valid CBOR-encoded map (Section 3.2).
-- If `std:default-language` is declared, SHOULD include an entry for it in every `localized-string::localized` it produces.
+- MUST include an `act:component` custom section with a valid CBOR-encoded map containing `std.name` and `std.version` (Section 3.2).
+- SHOULD include standard WASM metadata fields `name` and `version` for registry compatibility.
+- If `std.default-language` is declared, SHOULD include an entry for it in every `localized-string::localized` it produces.
 - MUST return valid `tool-definition` records from `list-tools()`.
 - MUST accept any `tool-call` whose `arguments` conform to the declared schemas (encoded as dCBOR).
 - MUST produce a well-formed `stream<stream-event>` from `call-tool()`. The stream is returned directly — there is no response wrapper.
@@ -714,7 +733,7 @@ The WIT is split across three files in a single package `act:core@0.2.0`. All in
 
 **`wit/act-core.wit`** — types, tool-provider, and world.
 
-Component-level metadata (name, version, description, capabilities) is stored in the `act:component` WASM custom section (CBOR-encoded) and standard WASM metadata fields, not as an exported function. See Section 3.2.
+Component-level metadata (name, version, description, capabilities) is stored in the `act:component` WASM custom section (CBOR-encoded), not as an exported function. See Section 3.2.
 
 ```wit
 package act:core@0.2.0;
@@ -723,11 +742,11 @@ interface types {
 
   /// A localizable text value.
   ///
-  /// - `plain` — an opaque UTF-8 string. If `std:default-language` is declared
+  /// - `plain` — an opaque UTF-8 string. If `std.default-language` is declared
   ///   in the `act:component` section, the string is assumed to be in that language.
   ///   Otherwise, the language is undefined.
   /// - `localized` — a list of (BCP 47 language-tag, text) pairs.
-  ///   If `std:default-language` is declared, SHOULD include an entry for it.
+  ///   If `std.default-language` is declared, SHOULD include an entry for it.
   variant localized-string {
     plain(string),
     localized(list<tuple<string, string>>),
@@ -948,14 +967,16 @@ interface resource-provider {
 
 A calculator component — `get-metadata-schema([])` returns `none`.
 
-**WASM metadata:** `name = "calculator"`, `version = "1.0.0"`
-
 **`act:component` custom section (CBOR):**
 
 ```cbor
 {
-  "std:default-language": "en",
-  "std:description": "Basic arithmetic tools"
+  "std": {
+    "name": "calculator",
+    "version": "1.0.0",
+    "default-language": "en",
+    "description": "Basic arithmetic tools"
+  }
 }
 ```
 

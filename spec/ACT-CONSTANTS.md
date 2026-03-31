@@ -16,15 +16,17 @@ Well-known constants use the `std:` prefix. Third-party constants use their own 
 
 ## 2. Component Info Keys
 
-Used in the `act:component` WASM custom section and `GET /info` HTTP response.
+Used in the `act:component` WASM custom section and `GET /info` HTTP response. The custom section is a CBOR map of namespaced tables; well-known metadata lives in the `std` table.
+
+**`std` table keys:**
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `std:name` | string | Component name. |
-| `std:version` | string | Component SemVer version. |
-| `std:description` | string or localized map | Human-readable description. |
-| `std:default-language` | string | BCP 47 language tag for the component's default language. Optional. |
-| `std:capabilities` | map | Capability declarations keyed by capability ID (see Section 11). |
+| `name` | string | Component name. Required. |
+| `version` | string | Component SemVer version. Required. |
+| `description` | string or localized map | Human-readable description. |
+| `default-language` | string | BCP 47 language tag for the component's default language. |
+| `capabilities` | map | Capability declarations keyed by capability ID (see Section 11). |
 
 ---
 
