@@ -77,19 +77,11 @@ The custom section contains a CBOR-encoded map. Keys are namespaced strings — 
 |-----|-----------|----------|-------------|
 | `std:default-language` | tstr | MAY | BCP 47 language tag for the component's default language. If absent, `plain` strings have no declared language. |
 | `std:description` | tstr or map | MAY | Localized description. Plain string or `{"en": "...", "ru": "..."}` map. |
-| `std:capabilities` | array | MAY | List of capability objects (see below). |
+| `std:capabilities` | map | MAY | Map of capability declarations keyed by capability identifier. Presence of a key declares that the component uses this capability. The value is an object with capability-specific parameters (may be empty). See Section 7. |
 
 The standard WASM metadata fields `name` and `version` (set via `wasm-tools metadata add` or equivalent) provide the component's name and version. These MUST be present.
 
 Custom keys follow the same namespacing convention as metadata elsewhere in the protocol. Hosts and tooling MUST ignore unrecognized keys.
-
-**Capability object:**
-
-| Field | CBOR type | Required | Description |
-|-------|-----------|----------|-------------|
-| `id` | tstr | MUST | Namespaced URI (e.g. `wasi:sockets/tcp`). |
-| `required` | bool | MUST | Whether the component cannot function without it. |
-| `description` | tstr or map | MAY | Localized description. |
 
 **Example (CBOR diagnostic notation):**
 
@@ -97,9 +89,9 @@ Custom keys follow the same namespacing convention as metadata elsewhere in the 
 {
   "std:default-language": "en",
   "std:description": "Weather data tools",
-  "std:capabilities": [
-    {"id": "wasi:http/outgoing-handler", "required": true}
-  ],
+  "std:capabilities": {
+    "wasi:http": {}
+  },
 }
 ```
 
@@ -559,13 +551,15 @@ Language-specific SDKs SHOULD generate parameter schemas from native type signat
 
 ### 7.1 Capability Model
 
-Capabilities represent host-side resources that a component may need. They are identified by namespaced URI strings.
+Capabilities represent host-side resources — external dependencies such as network access or filesystem — that a component may need. Only resources that require explicit host linking are declared; ambient capabilities (e.g. `wasi:clocks`, `wasi:random`) are always available and are not declared.
 
-A component declares its capabilities through the `std:capabilities` key in the `act:component` custom section. This declaration is informational — the host uses it to make linking decisions and to communicate capability requirements to clients (agents, UIs).
+A component declares its capabilities through the `std:capabilities` map in the `act:component` custom section. The host uses this declaration to make linking decisions and to communicate capability requirements to clients (agents, UIs).
 
 ### 7.2 Declaration
 
-The component MUST declare each capability with `required: true` if the component cannot function without it, or `required: false` if it can function without it.
+The component declares each capability by adding its identifier as a key in the `std:capabilities` map. The value is an object containing capability-specific parameters; an empty object `{}` means the capability is used without specific restrictions. If a capability identifier is absent from the map, the component does not use that capability.
+
+Within a declared capability, an absent parameter means the parameter is unrestricted (the host uses its default).
 
 Language SDKs SHOULD populate this declaration automatically from the component's `world` definition.
 
@@ -573,7 +567,7 @@ Language SDKs SHOULD populate this declaration automatically from the component'
 
 The host links (or refuses to link) WASI imports based on its capability policy:
 
-- **Strict mode** — the host refuses to load a component if any required capability is not permitted by policy.
+- **Strict mode** — the host refuses to load a component if any declared capability is not permitted by policy.
 - **Permissive mode** — the host links all available capabilities regardless of declaration.
 
 If a component invokes an import that was not linked, the call will trap. The capability declaration helps prevent this by allowing the host to reject incompatible components early.
@@ -582,13 +576,11 @@ If a component invokes an import that was not linked, the call will trap. The ca
 
 The following identifiers are defined by this specification. Hosts SHOULD recognize them:
 
-| Capability ID | Description |
-|--------------|-------------|
-| `wasi:sockets/tcp` | Outbound TCP connections |
-| `wasi:sockets/udp` | Outbound UDP datagrams |
-| `wasi:http/outgoing-handler` | Outbound HTTP requests |
-| `wasi:filesystem/types` | Filesystem access |
-| `wasi:threads` | Thread spawning |
+| Capability ID | Parameters | Description |
+|--------------|------------|-------------|
+| `wasi:http` | _(none yet)_ | Outbound HTTP requests. |
+| `wasi:filesystem` | `mount-root` (string) | Filesystem access. `mount-root` sets the internal WASM root path for all host mounts (default: `/`). |
+| `wasi:sockets` | _(none yet)_ | Outbound TCP and UDP connections. |
 
 Additional capability identifiers MAY be defined by third parties using their own namespace (e.g. `acme:gpu/compute`). Hosts that do not recognize a capability identifier SHOULD treat it according to their enforcement mode.
 

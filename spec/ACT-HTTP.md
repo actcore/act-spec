@@ -99,9 +99,9 @@ Returned by the info endpoint. Uses the same format as the `act:component` WASM 
   "std:version": "1.2.0",
   "std:description": "Weather data tools",
   "std:default-language": "en",
-  "std:capabilities": [
-    { "id": "wasi:http/outgoing-handler", "required": true }
-  ]
+  "std:capabilities": {
+    "wasi:http": {}
+  }
 }
 ```
 
@@ -111,7 +111,7 @@ Returned by the info endpoint. Uses the same format as the `act:component` WASM 
 | `std:version` | string | Component SemVer version string. |
 | `std:description` | string | Human-readable description. |
 | `std:default-language` | string | Optional BCP 47 language tag for the component's default language. |
-| `std:capabilities` | array | Optional list of capabilities the component requires (see Section 8). |
+| `std:capabilities` | object | Optional map of capability declarations (see Section 8). |
 
 Additional keys (e.g. `acme:priority`) MAY be present. Clients MUST ignore unrecognized keys.
 
@@ -521,22 +521,20 @@ See ACT-SPEC.md Section 8.3 for bridge forwarding details.
 
 ## 8. Capabilities
 
-The `std:capabilities` array in component info declares external dependencies:
+The `std:capabilities` map in component info declares external dependencies. Each key is a capability identifier; the value is an object with capability-specific parameters (may be empty):
 
 ```json
 {
-  "std:capabilities": [
-    { "id": "wasi:http/outgoing-handler", "required": true, "description": "HTTP access for API calls" },
-    { "id": "wasi:filesystem/types", "required": false, "description": "Optional file system access" }
-  ]
+  "std:capabilities": {
+    "wasi:http": {},
+    "wasi:filesystem": { "mount-root": "/data" }
+  }
 }
 ```
 
-| Field | Type | Description |
-|---|---|---|
-| `id` | string | Capability identifier. |
-| `required` | boolean | Whether the server fails without this capability. |
-| `description` | string | Human-readable description. |
+Presence of a key declares that the component uses the capability. An empty object `{}` means the capability is used without specific restrictions. A capability absent from the map is not used by the component.
+
+For the list of well-known capability identifiers and their parameters, see ACT-SPEC.md Section 7.4 and ACT-CONSTANTS.md Section 11.
 
 ---
 

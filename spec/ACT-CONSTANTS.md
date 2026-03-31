@@ -24,8 +24,7 @@ Used in the `act:component` WASM custom section and `GET /info` HTTP response.
 | `std:version` | string | Component SemVer version. |
 | `std:description` | string or localized map | Human-readable description. |
 | `std:default-language` | string | BCP 47 language tag for the component's default language. Optional. |
-| `std:capabilities` | array | List of capability objects (`{id, required, description?}`). |
-| `std:fs:mount-root` | string | Guest path where host filesystem is mounted (default: `/`). |
+| `std:capabilities` | map | Capability declarations keyed by capability ID (see Section 11). |
 
 ---
 
@@ -136,13 +135,13 @@ Well-known resource identifiers for `resource-provider`.
 
 ## 11. Capability Identifiers
 
-Used in `std:capabilities` capability objects. Hosts SHOULD recognize these identifiers.
+Used as keys in the `std:capabilities` map. Values are objects with capability-specific parameters.
 
-| Capability ID | Description |
-|--------------|-------------|
-| `wasi:filesystem` | Filesystem access (read/write files and directories). |
-| `wasi:sockets` | Outbound TCP and UDP connections. |
-| `wasi:http` | Outbound HTTP requests. |
+| Capability ID | Parameters | Description |
+|--------------|------------|-------------|
+| `wasi:http` | _(none yet)_ | Outbound HTTP requests. |
+| `wasi:filesystem` | `mount-root` (string) | Filesystem access. `mount-root` is the internal WASM path prefix for all host mounts (default: `/`). |
+| `wasi:sockets` | _(none yet)_ | Outbound TCP and UDP connections. |
 
 Third-party capabilities use their own namespace (e.g. `acme:gpu/compute`). Hosts that do not recognize a capability identifier SHOULD treat it according to their enforcement mode.
 
