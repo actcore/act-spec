@@ -69,7 +69,6 @@ May appear on any metadata field (tool-call, list-tools-response, content-part, 
 | `std:tracestate` | string | W3C Trace Context `tracestate` header value. |
 | `std:request-id` | string | Correlation ID for logging. |
 | `std:progress-token` | string | MCP-compatible progress token. |
-| `std:accept` | string | Preferred MIME type for structured content in the response. If absent, content is returned as-is. Enables per-call conversion of `application/cbor` to `application/json` or `application/toon`. Non-structured content (text/*, image/*) is unaffected. Used in tool-call metadata. |
 
 Transport adapters SHOULD propagate `std:traceparent` and `std:tracestate` to/from the corresponding HTTP headers or MCP request extensions.
 
