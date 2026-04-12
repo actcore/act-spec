@@ -1,6 +1,6 @@
 # ACT Well-Known Constants
 
-**Protocol Version 0.2 (Draft)**
+**Protocol Version 0.2**
 
 This document is the authoritative registry of all well-known `std:`-prefixed strings in the ACT protocol. All other ACT specifications reference this document rather than defining `std:` constants inline.
 

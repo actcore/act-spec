@@ -1,6 +1,6 @@
 # ACT HTTP API
 
-**Protocol Version 0.2 (Draft)**
+**Protocol Version 0.2**
 
 A stateless HTTP API for discovering and invoking tools. Any HTTP server that conforms to this specification is a valid implementation — no WebAssembly runtime or specific programming language is required.
 

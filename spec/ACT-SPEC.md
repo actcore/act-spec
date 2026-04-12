@@ -1,6 +1,6 @@
 # ACT: Agent Component Tools
 
-**Protocol Specification — Version 0.2.0 (Draft)**
+**Protocol Specification — Version 0.2.0**
 
 ---
 

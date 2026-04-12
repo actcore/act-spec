@@ -1,6 +1,6 @@
 # ACT Agent Skills Embedding
 
-**Version 0.1.0 (Draft)**
+**Version 0.1.0**
 
 This document specifies how an [Agent Skills](https://agentskills.io) package is embedded inside an ACT WebAssembly component. It enables AI agents to discover component usage instructions without instantiating or executing the component.
 

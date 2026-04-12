@@ -1,6 +1,6 @@
 # ACT–MCP Mapping Guide (Informative)
 
-**Version 0.2.0 (Draft)**
+**Version 0.2.0**
 
 This document describes how ACT components can be exposed as MCP-compatible servers. It is an **informative guide** for implementors of MCP↔ACT adapters, not a normative specification. Implementations MAY deviate from these recommendations where appropriate.
 
