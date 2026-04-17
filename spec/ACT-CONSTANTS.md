@@ -39,7 +39,6 @@ Used in `tool-definition.metadata`.
 | `std:read-only` | bool | Tool does not modify state. |
 | `std:idempotent` | bool | Repeated calls with same arguments produce the same result. |
 | `std:destructive` | bool | Tool may irreversibly modify state. |
-| `std:streaming` | bool | Tool produces results incrementally. |
 | `std:timeout-ms` | uint | Suggested timeout in milliseconds. Host MAY override. |
 | `std:usage-hints` | localized-string | When to use this tool (for AI agents). |
 | `std:anti-usage-hints` | localized-string | When NOT to use this tool (for AI agents). |

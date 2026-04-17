@@ -1,6 +1,6 @@
 # ACT: Agent Component Tools
 
-**Protocol Specification — Version 0.2.0**
+**Protocol Specification — Version 0.3.0**
 
 ---
 
@@ -8,7 +8,7 @@
 
 ACT (Agent Component Tools) is a self-documenting RPC protocol built on top of the WebAssembly Component Model. It defines a standard interface for packaging callable tools as WASM components that can be consumed by AI agents, application developers, and orchestration platforms alike.
 
-A single ACT component is a `.wasm` file that exports a well-known set of interfaces. A host runtime loads the component, inspects its metadata and capabilities, discovers available tools, and invokes them — receiving results as a stream.
+A single ACT component is a `.wasm` file that exports a well-known set of interfaces. A host runtime loads the component, inspects its metadata and capabilities, discovers available tools, and invokes them — receiving results as a sequence of events.
 
 ### 1.1 Design Goals
 
@@ -16,7 +16,7 @@ A single ACT component is a `.wasm` file that exports a well-known set of interf
 - **Self-documenting** — every tool carries localized descriptions, parameter schemas, usage hints, and behavioral annotations directly in the component.
 - **Sandboxed** — WASM isolation provides capability-based security by default. Components cannot access host resources unless explicitly linked.
 - **Stateless protocol** — metadata is passed per-call, enabling horizontal scaling and CDN/proxy compatibility. Components MAY maintain internal state (caches, connection pools) as a private optimization, but the protocol does not manage or expose it.
-- **Streaming** — tool results are always delivered as a stream, unifying atomic and incremental result patterns.
+- **Uniform result shape** — tool results are delivered as an event sequence, either immediate (bounded list) or streaming (unbounded stream), with identical event semantics.
 - **Efficient** — Deterministically Encoded CBOR for arguments and content data. Native binary support without base64 overhead.
 - **Extensible** — every record carries a `metadata` field with namespaced key-value pairs; breaking changes are handled through WIT package versioning.
 
@@ -62,7 +62,7 @@ CBOR examples use CBOR diagnostic notation (RFC 8949 §8).
 ### 3.1 Package
 
 ```wit
-package act:core@0.2.0;
+package act:core@0.3.0;
 ```
 
 ### 3.2 Component Info (Custom Section)
@@ -156,8 +156,7 @@ interface types {
     /// detected via the `$schema` field.
     parameters-schema: string,
     /// Well-known keys: std:read-only, std:idempotent, std:destructive,
-    /// std:usage-hints, std:anti-usage-hints, std:examples, std:tags, std:timeout-ms,
-    /// std:streaming.
+    /// std:usage-hints, std:anti-usage-hints, std:examples, std:tags, std:timeout-ms.
     metadata: metadata,
   }
 
@@ -199,11 +198,26 @@ interface types {
     metadata: metadata,
   }
 
-  /// A single event in the tool result stream.
-  /// A `stream-event::error` is terminal — the stream closes after it.
-  variant stream-event {
+  /// A single event in a tool's result.
+  /// A `tool-event::error` is terminal — no further events follow.
+  variant tool-event {
     content(content-part),
     error(tool-error),
+  }
+
+  /// The result of a tool call.
+  ///
+  /// Two shapes exist to accommodate different guest capabilities; they are
+  /// semantically equivalent. Both carry an ordered sequence of `tool-event`s
+  /// with identical terminal-error semantics. Hosts, intermediaries, and callers
+  /// MUST treat both variants as equivalent event sequences. Intermediaries MAY
+  /// freely convert between variants.
+  ///
+  /// - `immediate` — event list is materialized when the tool returns.
+  /// - `streaming` — events are emitted to a stream as they are produced.
+  variant tool-result {
+    immediate(list<tool-event>),
+    streaming(stream<tool-event>),
   }
 
 
@@ -226,7 +240,7 @@ interface tool-provider {
   use types.{
     tool-definition,
     tool-call,
-    stream-event,
+    tool-result,
     list-tools-response,
     tool-error,
     metadata,
@@ -248,10 +262,12 @@ interface tool-provider {
   /// Async because bridge components may need to fetch remote schemas.
   list-tools: async func(metadata: metadata) -> result<list-tools-response, tool-error>;
 
-  /// Invokes a tool and returns a stream of results.
-  /// Metadata is carried inside `tool-call.metadata`.
-  /// Each stream-event is either content or a terminal error.
-  call-tool: async func(call: tool-call) -> stream<stream-event>;
+  /// Invokes a tool. Metadata is carried inside `tool-call.metadata`.
+  ///
+  /// Returns either `immediate` (bounded, sync-friendly) or `streaming`
+  /// (unbounded or incremental). Both carry `tool-event`s with the same
+  /// semantics: `tool-event::error` is terminal.
+  call-tool: async func(call: tool-call) -> tool-result;
 }
 ```
 
@@ -267,7 +283,7 @@ Components MAY additionally export `event-provider` (Section 3.6) and/or `resour
 
 ### 3.6 Event Provider Interface (Optional)
 
-Components that emit events export the `event-provider` interface (defined in `act-events.wit`, part of the `act:core@0.2.0` package):
+Components that emit events export the `event-provider` interface (defined in `act-events.wit`, part of the `act:core@0.3.0` package):
 
 ```wit
 interface event-types {
@@ -301,7 +317,7 @@ interface event-provider {
 
 ### 3.7 Resource Provider Interface (Optional)
 
-Components that provide resources export the `resource-provider` interface (defined in `act-resources.wit`, part of the `act:core@0.2.0` package):
+Components that provide resources export the `resource-provider` interface (defined in `act-resources.wit`, part of the `act:core@0.3.0` package):
 
 ```wit
 interface resource-types {
@@ -366,19 +382,70 @@ For components without metadata requirements (`get-metadata-schema` returns `non
 3. The host MUST validate metadata against the schema from `get-metadata-schema` if present. If the component requires metadata and none is provided, or if the metadata does not match the schema, the host MUST return a `tool-error` with kind `std:invalid-args`.
 4. The host MUST ensure `arguments` are deterministically encoded before passing them to the component.
 5. The host calls `call-tool(call)`.
-6. The host receives a `stream<stream-event>` and reads events from it:
+6. The host receives a `tool-result` and dispatches on the variant:
+   - `immediate(events)` — the full event list is available synchronously. The host processes events in order.
+   - `streaming(stream)` — the host reads events from the stream as they arrive.
+7. In both cases, events are interpreted identically:
    - `content(part)` — a piece of result content. There may be zero or more.
-   - `error(e)` — a terminal error. The stream ends after this event.
-7. When the stream completes without an `error` event, the call is considered successful.
-8. If the error occurs before execution begins (e.g. tool not found, capability denied), the component returns a stream with a single `error` event.
+   - `error(e)` — a terminal error. No further events follow.
+8. The call is successful when the sequence ends without an `error` event. Early failures (tool not found, capability denied) are returned as `immediate([error(e)])`.
+
+The two variants carry **identical observable semantics**: an ordered sequence of `tool-event`s with a terminal `error` event. The choice between them is a guest implementation detail driven by the language, runtime, and expected output size — not a protocol-level classification of the tool. Hosts, intermediaries, and callers treat both variants uniformly.
+
+#### 4.3.1 Why Two Variants Exist
+
+`immediate` exists to let components without an async runtime (and components without incremental output) implement `call-tool` as a simple function that returns a list. `streaming` exists to let components emit events as they are produced, without buffering the entire result or blocking the guest instance on unbounded computation.
+
+Guest-side considerations that typically inform the choice:
+
+| Guest situation | Typical guest implementation choice |
+|---|---|
+| Sync function returning a bounded result (hash, encode, parse) | `immediate` |
+| Language without async runtime (MoonBit, Go with limited async) | `immediate` |
+| Incremental producer with live progress (LLM tokens, SQL cursor, log tail) | `streaming` |
+| Large or unbounded output where buffering is wasteful | `streaming` |
+| I/O-bound bridge forwarding upstream events | `streaming` |
+
+The `async` keyword on `call-tool` and this choice are orthogonal: a guest function may await I/O and still return `immediate`, or be a sync body and still return `streaming`. Languages lowering `async func` as a sync export can only produce `immediate`, which is sufficient for a large class of tools.
+
+#### 4.3.2 Variant Conversion by Intermediaries
+
+Because observable semantics are identical, intermediaries (bridges, proxies, adapters) MAY freely convert between variants based on their own characteristics. Event ordering and terminal-error semantics MUST be preserved.
+
+- **`immediate` → `streaming`.** An intermediary that performs I/O on every call (e.g. `act-http-bridge` forwarding over HTTP, `mcp-bridge` forwarding over MCP Streamable HTTP) SHOULD return `streaming` to its caller regardless of what the upstream returned. The intermediary is already async by nature; wrapping events in a local stream lets the caller begin processing as soon as they arrive over the wire, rather than blocking on the full upstream round-trip.
+- **`streaming` → `immediate`.** An intermediary whose output channel cannot carry partial results (e.g. MCP stdio, request/reply HTTP with bounded body) MAY buffer a `streaming` source into `immediate`. This requires the source to be bounded. Intermediaries MAY rely on host-level memory limits for overflow protection; those that enforce their own size limit SHOULD surface the overflow as a terminal `tool-event::error` with kind `std:internal`.
+
+Callers MUST NOT infer anything about a tool's nature from the runtime variant observed at a given call site — that choice belongs to whoever implemented the nearest producer.
+
+**Host fairness.** A very large `immediate(list<tool-event>)` arrives in a single allocation — the host cannot backpressure on it the way it can on a stream. Components producing large or unbounded results SHOULD prefer `streaming`. Hosts MAY enforce an upper bound on `immediate` size via wasmtime memory limits.
 
 ### 4.4 Cancellation
 
-1. The host drops the stream handle returned by `call-tool`.
-2. The wasmtime runtime propagates cancellation to the component's async context.
-3. The component SHOULD release resources promptly upon receiving cancellation.
-4. The host is NOT required to wait for the component to acknowledge cancellation.
-5. Any `content-part` events delivered before cancellation are considered valid and delivered.
+Cancellation is a uniform host-side concern. The host initiates cancellation when the caller disconnects, on timeout, or on any other policy trigger. The mechanism used depends on where the guest is in its execution, not on which `tool-result` variant the component returns.
+
+Hosts have two cancellation mechanisms, in order of preference:
+
+- **Cooperative cancellation.** The host drops the async future (for an in-flight `call-tool`) or the stream reader (for a returned `streaming` result). The wasmtime runtime propagates cancellation to the affected guest task at its next yield point. Other concurrent invocations on the same instance are unaffected. This is the preferred mechanism.
+- **Runtime-level interruption.** The host triggers wasmtime's epoch bump or fuel exhaustion, causing the guest to trap at the next compiled-in check. The host catches the trap and tears down the instance. Every concurrent invocation on that instance fails. This is a fallback for runaway components that never yield.
+
+**Two execution phases:**
+
+1. **In-flight `call-tool` invocation.** The guest is still inside `call-tool`: computing, awaiting an I/O import, or preparing to return. No `tool-result` has been produced yet. The host SHOULD cancel by dropping the call future and waiting (up to a policy-defined grace period) for the guest task to observe the cancel at its next yield. If the guest yields, any partially-constructed result is discarded. If the guest fails to yield within the grace period, the host MAY escalate to runtime-level interruption. For short-lived tools, hosts MAY simply wait for `call-tool` to complete and then discard the returned `tool-result` — this preserves instance integrity with no protocol-visible difference for the caller.
+
+2. **After `call-tool` returns with `streaming`.** The guest has returned a stream handle; a spawned guest task continues to produce events. A spawned task belongs to this phase once `call-tool` returns, regardless of when it was spawned. The host cancels by dropping the stream reader; the runtime propagates cancellation at the spawned task's next yield. Runtime-level interruption remains available as a fallback for non-yielding producers, at the cost of destroying the instance.
+
+There is no separate "after `call-tool` returns with `immediate`" phase: an `immediate` result is fully materialized at return, so there is no in-guest work remaining to cancel.
+
+Hosts SHOULD document their cancellation policy (grace period before escalating, epoch tick interval, fuel budget) so component authors can reason about worst-case cancellation latency.
+
+Any `tool-event::content` values already delivered to the caller before cancellation are considered valid and MUST NOT be withdrawn.
+
+**Component guidelines for cancellable long-running work.** Guest components producing `streaming` results MUST ensure the producer task yields periodically (either naturally via async I/O or explicitly via cooperative yield); otherwise drop-reader cancellation is ineffective and the host falls back to instance-destroying trap. Guest components producing `immediate` results SHOULD also yield during the in-flight phase for responsive cancellation. Recommended techniques:
+
+- **Prefer async I/O for bulk data.** Hashing, compressing, or parsing large inputs SHOULD read through `wasi:filesystem` / `wasi:http` streams. Each `read` is a natural yield point; cancellation via dropping the result handle cooperates cleanly. Small inputs (≤ a few MB of in-memory argument) do not need special treatment — they complete before any reasonable cancellation timeout.
+- **Yield explicitly in CPU-bound loops.** Components that cannot route work through async I/O (e.g. computation over an in-memory buffer passed as argument) SHOULD periodically `await` a cooperative yield (`tokio::task::yield_now` equivalent, or an explicit `futures::pending!` once with a cleared waker). A yield every ~1ms of CPU work gives the host responsive cancellation without measurable throughput cost.
+- **WASM has no thread offload.** Unlike `tokio::spawn_blocking` or ASGI's `run_in_executor`, WASM has no OS-thread pool to absorb sync CPU work. Cooperative yields or async I/O are the only portable mechanisms. A future threads proposal may relax this.
+- **Guest languages without async runtime.** MoonBit, Go, and similar toolchains that lower `async func` as sync exports cannot yield cooperatively. Components written in such languages SHOULD be short-lived and SHOULD NOT produce `streaming` results requiring mid-stream cancellation; long-running work is not portable to these languages until their WIT async bindings mature.
 
 ### 4.5 Metadata as Context
 
@@ -620,7 +687,7 @@ Every record type in this specification includes a `metadata` field of type `lis
 
 For the complete list of well-known `std:` constants — including tool definition metadata, content part metadata, cross-cutting metadata, bridge metadata, event kinds, and resource URIs — see `ACT-CONSTANTS.md`.
 
-Commonly used tool definition metadata keys include `std:read-only`, `std:idempotent`, `std:destructive`, `std:streaming`, and `std:timeout-ms`. All metadata values are CBOR-encoded.
+Commonly used tool definition metadata keys include `std:read-only`, `std:idempotent`, `std:destructive`, and `std:timeout-ms`. All metadata values are CBOR-encoded.
 
 Transport adapters SHOULD propagate `std:traceparent` and `std:tracestate` to/from the corresponding HTTP headers (`traceparent`, `tracestate`) or MCP request extensions.
 
@@ -669,7 +736,7 @@ The bridge forwards `std:forward` as the remote component's metadata. Each level
 Breaking changes to the WIT interfaces are handled through WIT package versioning:
 
 ```
-act:core@0.1.0  ->  ...  ->  act:core@0.1.6  ->  act:core@0.2.0
+act:core@0.1.0  ->  ...  ->  act:core@0.1.6  ->  act:core@0.2.0  ->  act:core@0.3.0
 ```
 
 A host MAY support multiple interface versions simultaneously. A component declares which version it implements through its WIT world.
@@ -678,11 +745,11 @@ A host MAY support multiple interface versions simultaneously. A component decla
 
 ## 9. Error Handling
 
-### 9.1 Stream Error Model
+### 9.1 Event Error Model
 
-All errors from `call-tool` are delivered as `stream-event::error(tool-error)` events in the result stream. A `stream-event::error` is terminal — the stream MUST close after it. There is no separate early-error path; errors that occur before execution begins (e.g. tool not found, capability denied) are returned as a stream with a single `error` event.
+All errors from `call-tool` are delivered as `tool-event::error(tool-error)` events inside the `tool-result`. A `tool-event::error` is terminal — no further events follow. There is no separate early-error path; errors that occur before execution begins (e.g. tool not found, capability denied) are returned as `immediate([error(e)])`.
 
-Content parts delivered before an `error` event are valid and SHOULD be delivered to the caller.
+Content parts delivered before an `error` event are valid and MUST be delivered to the caller (consistent with §4.4: already-delivered events MUST NOT be withdrawn).
 
 ### 9.2 Error Kind Semantics
 
@@ -705,7 +772,8 @@ A conformant ACT component:
 - If `std.default-language` is declared, SHOULD include an entry for it in every `localized-string::localized` it produces.
 - MUST return valid `tool-definition` records from `list-tools()`.
 - MUST accept any `tool-call` whose `arguments` conform to the declared schemas (encoded as dCBOR).
-- MUST produce a well-formed `stream<stream-event>` from `call-tool()`. The stream is returned directly — there is no response wrapper.
+- MUST produce a well-formed `tool-result` from `call-tool()`. Either variant is conformant; see Section 4.3.1 for guidance. The result is returned directly — there is no response wrapper.
+- MUST NOT emit any `tool-event` after a `tool-event::error` in either variant. A `streaming` stream that closes without emitting any events is semantically equivalent to `immediate([])` (a successful no-output call).
 - MUST return a valid JSON Schema of type "object" from `get-metadata-schema()` if metadata is required, or `none` if not.
 - MUST return immediately without network I/O when `get-metadata-schema` is called with empty metadata.
 - MUST accept empty metadata in `list-tools` and `call-tool` if `get-metadata-schema` returns `none`.
@@ -720,7 +788,8 @@ A conformant ACT host:
 - MUST validate tool call arguments against declared schemas before invoking the component (Section 6.4).
 - MUST validate metadata against the metadata schema if present (Section 6.4).
 - MUST implement a language resolution strategy for `localized-string` (Section 5.4). The specific strategy is implementation-defined.
-- MUST propagate cancellation by dropping the stream handle (Section 4.4).
+- MUST propagate cancellation to the component. Hosts SHOULD prefer cooperative cancellation (drop the call future during in-flight `call-tool`; drop the stream reader after `call-tool` returns with `streaming`) and MAY escalate to runtime-level interruption (epoch/fuel) for non-yielding components. See Section 4.4.
+- MAY ignore any `tool-event` received after a `tool-event::error` within a single `tool-result` (components MUST NOT emit such events; see §10.1).
 - MUST ignore unrecognized metadata keys (Section 8.1).
 - MUST handle `tool-error` returned by `list-tools` and surface it to the caller through the appropriate transport mechanism (Section 4.2).
 - MUST NOT reject `tool-error` values with unrecognized `kind` strings (Section 9.2).
@@ -729,14 +798,14 @@ A conformant ACT host:
 
 ## Appendix A: Complete WIT
 
-The WIT is split across three files in a single package `act:core@0.2.0`. All interfaces share the same package namespace.
+The WIT is split across three files in a single package `act:core@0.3.0`. All interfaces share the same package namespace.
 
 **`wit/act-core.wit`** — types, tool-provider, and world.
 
 Component-level metadata (name, version, description, capabilities) is stored in the `act:component` WASM custom section (CBOR-encoded), not as an exported function. See Section 3.2.
 
 ```wit
-package act:core@0.2.0;
+package act:core@0.3.0;
 
 interface types {
 
@@ -772,8 +841,7 @@ interface types {
     /// detected via the `$schema` field.
     parameters-schema: string,
     /// Well-known keys: std:read-only, std:idempotent, std:destructive,
-    /// std:usage-hints, std:anti-usage-hints, std:examples, std:tags, std:timeout-ms,
-    /// std:streaming.
+    /// std:usage-hints, std:anti-usage-hints, std:examples, std:tags, std:timeout-ms.
     metadata: metadata,
   }
 
@@ -815,11 +883,26 @@ interface types {
     metadata: metadata,
   }
 
-  /// A single event in the tool result stream.
-  /// A `stream-event::error` is terminal — the stream closes after it.
-  variant stream-event {
+  /// A single event in a tool's result.
+  /// A `tool-event::error` is terminal — no further events follow.
+  variant tool-event {
     content(content-part),
     error(tool-error),
+  }
+
+  /// The result of a tool call.
+  ///
+  /// Two shapes exist to accommodate different guest capabilities; they are
+  /// semantically equivalent. Both carry an ordered sequence of `tool-event`s
+  /// with identical terminal-error semantics. Hosts, intermediaries, and callers
+  /// MUST treat both variants as equivalent event sequences. Intermediaries MAY
+  /// freely convert between variants.
+  ///
+  /// - `immediate` — event list is materialized when the tool returns.
+  /// - `streaming` — events are emitted to a stream as they are produced.
+  variant tool-result {
+    immediate(list<tool-event>),
+    streaming(stream<tool-event>),
   }
 
 
@@ -842,7 +925,7 @@ interface tool-provider {
   use types.{
     tool-definition,
     tool-call,
-    stream-event,
+    tool-result,
     list-tools-response,
     tool-error,
     metadata,
@@ -864,10 +947,12 @@ interface tool-provider {
   /// Async because bridge components may need to fetch remote schemas.
   list-tools: async func(metadata: metadata) -> result<list-tools-response, tool-error>;
 
-  /// Invokes a tool and returns a stream of results.
-  /// Metadata is carried inside `tool-call.metadata`.
-  /// Each stream-event is either content or a terminal error.
-  call-tool: async func(call: tool-call) -> stream<stream-event>;
+  /// Invokes a tool. Metadata is carried inside `tool-call.metadata`.
+  ///
+  /// Returns either `immediate` (bounded, sync-friendly) or `streaming`
+  /// (unbounded or incremental). Both carry `tool-event`s with the same
+  /// semantics: `tool-event::error` is terminal.
+  call-tool: async func(call: tool-call) -> tool-result;
 }
 
 world act-world {
@@ -880,7 +965,7 @@ world act-world {
 **`wit/act-events.wit`** — event types and event-provider interface:
 
 ```wit
-package act:core@0.2.0;
+package act:core@0.3.0;
 
 interface event-types {
   use types.{localized-string, metadata};
@@ -922,7 +1007,7 @@ interface event-provider {
 **`wit/act-resources.wit`** — resource types and resource-provider interface:
 
 ```wit
-package act:core@0.2.0;
+package act:core@0.3.0;
 
 interface resource-types {
   use types.{localized-string, metadata};
@@ -1102,30 +1187,54 @@ A tool definition using well-known metadata keys (shown as JSON for readability;
 }
 ```
 
-### B.5 Tool Result Stream
+### B.5 Tool Result
 
-A successful `call-tool` returns a `stream<stream-event>`. Example stream (shown as pseudo-JSON for readability):
+A successful `call-tool` returns a `tool-result`. Bounded, sync-friendly tools use `immediate`:
 
 ```
-[
+immediate([
   content({ data: "Hello, world!", mime_type: "text/plain", metadata: [] }),
   content({ data: "<additional data>", mime_type: "text/plain", metadata: [] })
-]
+])
 ```
 
-An error stream — the error event is terminal, the stream closes after it:
+Unbounded or incrementally-produced results use `streaming`, yielding the same `tool-event`s over time:
 
 ```
-[
+streaming(<stream yielding>
+  content({ data: "chunk 1", ... }),
+  content({ data: "chunk 2", ... }),
+  ...
+)
+```
+
+Early failure is encoded as a single-error `immediate`:
+
+```
+immediate([
+  error({ kind: "std:not-found", message: plain("Tool 'foo' not found"), metadata: [] })
+])
+```
+
+A `streaming` result may also carry an error — the error event is terminal:
+
+```
+streaming(<stream yielding>
   error({ kind: "std:not-found", message: "Tool foo does not exist", metadata: [] })
-]
+)
 ```
 
-A stream may contain content before an error (partial results):
+Either variant may contain content before an error (partial results):
 
 ```
-[
+immediate([
   content({ data: "partial result...", mime_type: "text/plain", metadata: [] }),
   error({ kind: "std:timeout", message: "Operation timed out", metadata: [] })
-]
+])
+```
+
+A successful no-output call uses an empty list:
+
+```
+immediate([])
 ```

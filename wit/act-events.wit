@@ -1,4 +1,4 @@
-package act:core@0.2.0;
+package act:core@0.3.0;
 
 interface event-types {
   use types.{localized-string, metadata};

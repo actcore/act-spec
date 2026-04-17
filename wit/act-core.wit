@@ -1,4 +1,4 @@
-package act:core@0.2.0;
+package act:core@0.3.0;
 
 interface types {
 
@@ -34,8 +34,7 @@ interface types {
     /// detected via the `$schema` field.
     parameters-schema: string,
     /// Well-known keys: std:read-only, std:idempotent, std:destructive,
-    /// std:usage-hints, std:anti-usage-hints, std:examples, std:tags, std:timeout-ms,
-    /// std:streaming.
+    /// std:usage-hints, std:anti-usage-hints, std:examples, std:tags, std:timeout-ms.
     metadata: metadata,
   }
 
@@ -77,11 +76,31 @@ interface types {
     metadata: metadata,
   }
 
-  /// A single event in the tool result stream.
-  /// A `stream-event::error` is terminal — the stream closes after it.
-  variant stream-event {
+  /// A single event in a tool's result.
+  /// A `tool-event::error` is terminal — no further events follow.
+  variant tool-event {
     content(content-part),
     error(tool-error),
+  }
+
+  /// The result of a tool call.
+  ///
+  /// Two shapes exist to accommodate different guest capabilities; they are
+  /// semantically equivalent. Both carry an ordered sequence of `tool-event`s
+  /// with identical terminal-error semantics (`tool-event::error` is terminal).
+  /// Hosts, intermediaries, and callers MUST treat both variants as equivalent
+  /// event sequences.
+  ///
+  /// - `immediate` — the complete event list is materialized when the tool
+  ///   returns. Natural for sync guest bodies and languages without an async
+  ///   runtime. An early failure is encoded as a single `tool-event::error`.
+  /// - `streaming` — events are emitted to a stream as they are produced.
+  ///   Natural for incremental producers and I/O-bound bridges.
+  ///
+  /// Intermediaries (bridges, adapters) MAY freely convert between variants.
+  variant tool-result {
+    immediate(list<tool-event>),
+    streaming(stream<tool-event>),
   }
 
 
@@ -104,7 +123,7 @@ interface tool-provider {
   use types.{
     tool-definition,
     tool-call,
-    stream-event,
+    tool-result,
     list-tools-response,
     tool-error,
     metadata,
@@ -126,9 +145,11 @@ interface tool-provider {
   /// Async because bridge components may need to fetch remote schemas.
   list-tools: async func(metadata: metadata) -> result<list-tools-response, tool-error>;
 
-  /// Invokes a tool and returns a stream of results.
-  /// Metadata is carried inside `tool-call.metadata`.
-  /// Each stream-event is either content or a terminal error.
-  call-tool: async func(call: tool-call) -> stream<stream-event>;
+  /// Invokes a tool. Metadata is carried inside `tool-call.metadata`.
+  ///
+  /// Returns either `immediate` (bounded, sync-friendly) or `streaming`
+  /// (unbounded or incremental). Both carry `tool-event`s with the same
+  /// semantics: `tool-event::error` is terminal.
+  call-tool: async func(call: tool-call) -> tool-result;
 }
 

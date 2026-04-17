@@ -1,6 +1,6 @@
 # ACT–MCP Mapping Guide (Informative)
 
-**Version 0.2.0**
+**Version 0.3.0**
 
 This document describes how ACT components can be exposed as MCP-compatible servers. It is an **informative guide** for implementors of MCP↔ACT adapters, not a normative specification. Implementations MAY deviate from these recommendations where appropriate.
 
@@ -75,11 +75,11 @@ When the MCP client calls `tools/call`:
    - `arguments` — `params.arguments` converted from JSON to dCBOR bytes
    - `metadata` — the cached metadata (merged with any per-request metadata from MCP extensions)
 2. The adapter calls `call-tool(call)`.
-3. The adapter receives a `stream<stream-event>` and reads events from it.
+3. The adapter receives a `tool-result` and dispatches on the variant (`immediate` or `streaming`). In both cases, it reads `tool-event`s in order. For MCP transports that do not support partial results (e.g. stdio), the adapter MUST buffer `streaming` events into a single accumulated MCP response before returning. The adapter SHOULD bound the buffer size to protect against unbounded upstream streams; see ACT-SPEC §4.3.2 for conversion guidance. See §2.3 for progress notifications as a partial-streaming workaround.
 
 **Result mapping (success):**
 
-The adapter reads all `stream-event::content(part)` events from the stream and collects them into the MCP response.
+The adapter collects all `tool-event::content(part)` events and maps them to the MCP response.
 
 ```json
 {
@@ -102,7 +102,7 @@ The adapter reads all `stream-event::content(part)` events from the stream and c
 
 **Result mapping (error):**
 
-If the stream contains a `stream-event::error(tool-error)`, the adapter returns an MCP error response with `isError: true`. Any content-parts received before the error are included in the response, followed by the error content.
+If the event sequence contains a `tool-event::error(tool-error)`, the adapter returns an MCP error response with `isError: true`. Any content-parts received before the error are included in the response, followed by the error content.
 
 ```json
 {
@@ -144,7 +144,7 @@ The adapter MAY include partial content in progress notification extensions. The
 
 When the MCP client sends `notifications/cancelled` for an in-flight `tools/call`:
 
-1. The adapter drops the ACT stream handle for the corresponding call.
+1. If `call-tool` has not yet returned, the adapter triggers runtime-level cancellation (epoch/fuel) on the component instance. If `call-tool` has returned `streaming`, the adapter drops the stream handle. See ACT-SPEC §4.4.
 2. The adapter returns an MCP error response with code `-32800` (Request cancelled).
 
 ---

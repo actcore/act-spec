@@ -1,7 +1,7 @@
 openapi: 3.2.0
 info:
   title: ACT HTTP API
-  version: 0.2.0
+  version: 0.3.0
   description: |
     A stateless HTTP API for discovering and invoking tools.
     Any HTTP server that conforms to this specification is a valid implementation.
