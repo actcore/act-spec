@@ -10,7 +10,7 @@ For the normative ACT specifications, see `ACT-SPEC.md` and `ACT-HTTP.md`.
 
 ## 1. Overview
 
-An MCP↔ACT adapter translates between the Model Context Protocol and ACT component calls. The adapter loads an ACT component and exposes it as an MCP server, mapping MCP requests to ACT `tool-provider`, `event-provider`, and `resource-provider` interfaces.
+An MCP↔ACT adapter translates between the Model Context Protocol and ACT component calls. The adapter loads an ACT component and exposes it as an MCP server, mapping MCP `tools/*` requests to ACT `tool-provider` calls. Event and resource mappings (for the informative `event-provider` / `resource-provider` interfaces) are documented alongside those interfaces in `ACT-EVENTS.md` and `ACT-RESOURCES.md`.
 
 ### 1.1 Server Identity
 
@@ -24,13 +24,10 @@ The MCP `initialize` response should include:
     "version": "<version from WASM metadata>"
   },
   "capabilities": {
-    "tools": {},
-    "resources": {}
+    "tools": {}
   }
 }
 ```
-
-Include `resources` in capabilities if the component exports `resource-provider`. Event notifications are sent proactively and do not require a capability declaration.
 
 ### 1.2 Metadata Resolution
 
@@ -147,38 +144,3 @@ When the MCP client sends `notifications/cancelled` for an in-flight `tools/call
 1. If `call-tool` has not yet returned, the adapter triggers runtime-level cancellation (epoch/fuel) on the component instance. If `call-tool` has returned `streaming`, the adapter drops the stream handle. See ACT-SPEC §4.4.
 2. The adapter returns an MCP error response with code `-32800` (Request cancelled).
 
----
-
-## 3. Event Mapping
-
-If the component exports `event-provider` (`act:events` package), the adapter maps events to MCP notifications:
-
-| ACT event kind | MCP notification |
-|---|---|
-| `std:tools:changed` | `notifications/tools/list_changed` |
-| `std:resources:changed` | `notifications/resources/list_changed` |
-| Custom kinds | Adapter-defined (MAY use MCP notification extensions) |
-
-The adapter calls `subscribe(metadata)` when the MCP session starts and reads events from the stream. For each event, the adapter sends the corresponding MCP notification to the client.
-
-When the MCP session ends, the adapter drops the event stream handle.
-
----
-
-## 4. Resource Mapping
-
-If the component exports `resource-provider` (`act:resources` package), the adapter exposes resources as MCP resources.
-
-**Resource discovery — `resources/list`:**
-
-The adapter calls `list-resources(metadata)` and maps each `resource-info` to an MCP resource:
-
-| ACT `resource-info` | MCP `Resource` |
-|---|---|
-| `uri` | `uri` |
-| `description` | `name` (resolved to single language) |
-| `mime-type` | `mimeType` |
-
-**Resource retrieval — `resources/read`:**
-
-The adapter calls `get-resource(metadata, uri)`, reads the byte stream, and returns the content as MCP resource content.

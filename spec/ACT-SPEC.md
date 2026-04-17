@@ -279,76 +279,7 @@ world act-world {
 }
 ```
 
-Components MAY additionally export `event-provider` (Section 3.6) and/or `resource-provider` (Section 3.7). The host detects available interfaces at load time.
-
-### 3.6 Event Provider Interface (Optional)
-
-Components that emit events export the `event-provider` interface (defined in `act-events.wit`, part of the `act:core@0.3.0` package):
-
-```wit
-interface event-types {
-  use types.{localized-string, metadata};
-
-  record event-type-info {
-    kind: string,
-    description: localized-string,
-    metadata: metadata,
-  }
-
-  record event {
-    kind: string,
-    data: option<list<u8>>,
-    metadata: metadata,
-  }
-}
-
-interface event-provider {
-  use event-types.{event-type-info, event};
-  use types.{metadata};
-
-  get-event-types: func() -> list<event-type-info>;
-  subscribe: async func(metadata: metadata) -> stream<event>;
-}
-```
-
-- `get-event-types` returns the list of event kinds the component can emit. The host calls this at load time and MAY cache the result.
-- `subscribe` opens a stream of events. The host reads events as they arrive. The stream stays open until the component closes it or the host drops the handle (cancellation).
-- `metadata` follows the same pattern as `list-tools` and `call-tool` — bridge components may need credentials for external event sources.
-
-### 3.7 Resource Provider Interface (Optional)
-
-Components that provide resources export the `resource-provider` interface (defined in `act-resources.wit`, part of the `act:core@0.3.0` package):
-
-```wit
-interface resource-types {
-  use types.{localized-string, metadata};
-
-  record resource-info {
-    uri: string,
-    mime-type: option<string>,
-    description: localized-string,
-    metadata: metadata,
-  }
-
-  record resource-response {
-    mime-type: option<string>,
-    metadata: metadata,
-    body: stream<u8>,
-  }
-}
-
-interface resource-provider {
-  use resource-types.{resource-info, resource-response};
-  use types.{metadata};
-
-  list-resources: async func(metadata: metadata) -> list<resource-info>;
-  get-resource: async func(metadata: metadata, uri: string) -> resource-response;
-}
-```
-
-- `list-resources` returns the list of available resources with URIs, MIME types, and descriptions.
-- `get-resource` returns a `resource-response` with the actual MIME type, metadata, and a byte stream body. The MIME type MAY differ from the one declared in `resource-info` (content negotiation).
-- Well-known URI: `std:icon` — component icon (PNG or SVG).
+The `event-provider` and `resource-provider` interfaces are informative (RFC) design sketches, documented separately in `ACT-EVENTS.md` and `ACT-RESOURCES.md`. They are not part of the normative `act:core@0.3.0` contract.
 
 ---
 
@@ -474,25 +405,6 @@ For bridge components, the metadata schema may depend on metadata already provid
 5. Call `list-tools(metadata)`.
 
 Simple components return `none` from `get-metadata-schema` and accept empty metadata. They are unaffected by this mechanism.
-
-### 4.6 Event Subscription
-
-If the component exports `event-provider`:
-
-1. The host calls `get-event-types()` at load time to discover available event kinds.
-2. The host calls `subscribe(metadata)` to open an event stream.
-3. The host reads `event` values from the stream. Each event has a `kind` (matching a declared event kind), optional `data` (dCBOR payload), and `metadata`.
-4. The stream stays open until the component closes it or the host drops the handle.
-5. If the host drops the handle, the component SHOULD release resources promptly.
-
-### 4.7 Resource Access
-
-If the component exports `resource-provider`:
-
-1. The host calls `list-resources(metadata)` to discover available resources.
-2. The host calls `get-resource(metadata, uri)` to retrieve a specific resource.
-3. The host reads the byte stream from `resource-response.body`.
-4. The host uses `resource-response.mime-type` (or falls back to `resource-info.mime-type`) to determine the content type.
 
 ---
 
@@ -798,7 +710,7 @@ A conformant ACT host:
 
 ## Appendix A: Complete WIT
 
-The WIT is split across three files in a single package `act:core@0.3.0`. All interfaces share the same package namespace.
+The normative WIT lives in `wit/act-core.wit` within the `act:core@0.3.0` package. Informative (RFC) interfaces in `wit/act-events.wit` and `wit/act-resources.wit` share the same package namespace; their listings are in `ACT-EVENTS.md` and `ACT-RESOURCES.md`.
 
 **`wit/act-core.wit`** — types, tool-provider, and world.
 
@@ -957,92 +869,10 @@ interface tool-provider {
 
 world act-world {
   export tool-provider;
-  /// Optional: export event-provider for push notifications.
-  /// Optional: export resource-provider for static/dynamic resources.
 }
 ```
 
-**`wit/act-events.wit`** — event types and event-provider interface:
-
-```wit
-package act:core@0.3.0;
-
-interface event-types {
-  use types.{localized-string, metadata};
-
-  /// Describes a type of event the component can emit.
-  record event-type-info {
-    /// Event kind identifier. Well-known: "std:tools:changed",
-    /// "std:resources:changed", "std:events:changed".
-    /// Custom kinds use namespace prefix (e.g. "acme:order_updated").
-    kind: string,
-    description: localized-string,
-    metadata: metadata,
-  }
-
-  /// A single event emitted by the component.
-  record event {
-    /// Event kind, matching one of the kinds from get-event-types.
-    kind: string,
-    /// Optional dCBOR-encoded payload.
-    data: option<list<u8>>,
-    metadata: metadata,
-  }
-}
-
-interface event-provider {
-  use event-types.{event-type-info, event};
-  use types.{metadata};
-
-  /// Returns the list of event types this component can emit.
-  /// The host calls this at load time and MAY cache the result.
-  get-event-types: func() -> list<event-type-info>;
-
-  /// Opens a stream of events. The host reads events as they arrive.
-  /// The stream stays open until the component closes it or the host drops the handle.
-  subscribe: async func(metadata: metadata) -> stream<event>;
-}
-```
-
-**`wit/act-resources.wit`** — resource types and resource-provider interface:
-
-```wit
-package act:core@0.3.0;
-
-interface resource-types {
-  use types.{localized-string, metadata};
-
-  /// Describes a resource available from the component.
-  record resource-info {
-    /// Resource URI. Well-known: "std:icon".
-    uri: string,
-    /// Expected MIME type of the resource.
-    mime-type: option<string>,
-    description: localized-string,
-    metadata: metadata,
-  }
-
-  /// Response from get-resource.
-  record resource-response {
-    /// Actual MIME type (may differ from resource-info listing).
-    mime-type: option<string>,
-    metadata: metadata,
-    body: stream<u8>,
-  }
-}
-
-interface resource-provider {
-  use resource-types.{resource-info, resource-response};
-  use types.{metadata};
-
-  /// Returns the list of resources available from this component.
-  list-resources: async func(metadata: metadata) -> list<resource-info>;
-
-  /// Returns a resource by URI.
-  /// Returns a resource-response with mime-type, metadata, and a byte stream.
-  get-resource: async func(metadata: metadata, uri: string) -> resource-response;
-}
-```
+Informative (RFC) interfaces `event-provider` and `resource-provider` are documented in `ACT-EVENTS.md` and `ACT-RESOURCES.md`; their WIT lives in `wit/act-events.wit` and `wit/act-resources.wit`.
 
 ---
 

@@ -112,29 +112,7 @@ Used in `tool-error.kind`.
 
 ---
 
-## 9. Event Kinds
-
-Used in `event-type-info.kind` and `event.kind`.
-
-| Kind | Description |
-|------|-------------|
-| `std:tools:changed` | Tool list has changed. Clients SHOULD re-fetch via `list-tools`. |
-| `std:resources:changed` | Resource list has changed. Clients SHOULD re-fetch via `list-resources`. |
-| `std:events:changed` | Event type list has changed. Clients SHOULD re-fetch via `get-event-types`. |
-
----
-
-## 10. Resource URIs
-
-Well-known resource identifiers for `resource-provider`.
-
-| URI | Description |
-|-----|-------------|
-| `std:icon` | Component icon. Expected MIME type: `image/png` or `image/svg+xml`. |
-
----
-
-## 11. Capability Identifiers
+## 9. Capability Identifiers
 
 Used as keys in the `std:capabilities` map. Values are objects with capability-specific parameters.
 
@@ -148,7 +126,7 @@ Third-party capabilities use their own namespace (e.g. `acme:gpu/compute`). Host
 
 ---
 
-## 12. WASM Custom Sections
+## 10. WASM Custom Sections
 
 | Section name | Format | Description |
 |-------------|--------|-------------|
@@ -157,7 +135,7 @@ Third-party capabilities use their own namespace (e.g. `acme:gpu/compute`). Host
 
 ---
 
-## 13. MIME Types
+## 11. MIME Types
 
 Used in `content-part.mime-type` and content negotiation.
 

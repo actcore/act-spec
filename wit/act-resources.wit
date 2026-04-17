@@ -1,3 +1,12 @@
+// STATUS: Informative / Request for Comments.
+//
+// This interface is a design sketch for component-provided resources (skills,
+// schemas, remote data). It is NOT normative in act:core@0.3.0. No production
+// components currently implement resource-provider. The interface is retained
+// in the package to solicit feedback; future versions may stabilize,
+// restructure, or remove it. Implementations MAY experiment with it but
+// MUST NOT rely on its stability.
+
 package act:core@0.3.0;
 
 interface resource-types {

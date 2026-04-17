@@ -18,14 +18,9 @@ An ACT component MAY embed an Agent Skills package in a WASM custom section name
 - **Standard tooling** — extraction requires only `wasm-tools` and `tar`, no custom parsers.
 - **Agent Skills compatibility** — the embedded content is a valid Agent Skills package, usable by any platform that supports the standard (~30 platforms as of March 2026).
 
-### 1.2 Static vs Dynamic Skills
+### 1.2 Static Skills Only in v0.3.0
 
-| Mechanism | Content | Requires instantiation | Use case |
-|-----------|---------|----------------------|----------|
-| `act:skill` custom section | Full Agent Skills package (tar) | No | Static instructions, scripts, references |
-| `resource-provider` → `get-resource("std:skill")` | Dynamic skill content | Yes | Bridge components generating skills from remote schemas |
-
-Bridge components MAY provide both: a static `act:skill` documenting the bridge itself, and a dynamic skill via `resource-provider` documenting the specific remote service being bridged.
+The `act:skill` custom section carries a full Agent Skills package statically in the component binary. It does not require instantiation. A future mechanism for dynamic skills (generated per-instance or fetched from remote sources) may be added via the informative `resource-provider` interface (see `ACT-RESOURCES.md`), but is not part of the normative v0.3.0 surface.
 
 ---
 
