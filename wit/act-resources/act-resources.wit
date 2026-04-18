@@ -1,16 +1,14 @@
-package act:core@0.3.0;
+/// Component-provided resources (skills, schemas, remote data).
+///
+/// STATUS: Informative / Request for Comments.
+///
+/// This package is a design sketch and is NOT normative. No production
+/// components currently implement resource-provider. Implementations
+/// MAY experiment with it but MUST NOT rely on its stability.
+package act:resources@0.1.0;
 
-// STATUS: Informative / Request for Comments.
-//
-// This interface is a design sketch for component-provided resources (skills,
-// schemas, remote data). It is NOT normative in act:core@0.3.0. No production
-// components currently implement resource-provider. The interface is retained
-// in the package to solicit feedback; future versions may stabilize,
-// restructure, or remove it. Implementations MAY experiment with it but
-// MUST NOT rely on its stability.
-
-interface resource-types {
-  use types.{localized-string, metadata};
+interface resource-provider {
+  use act:core/types@0.4.0.{localized-string, metadata};
 
   /// Describes a resource available from the component.
   record resource-info {
@@ -29,11 +27,6 @@ interface resource-types {
     metadata: metadata,
     body: stream<u8>,
   }
-}
-
-interface resource-provider {
-  use resource-types.{resource-info, resource-response};
-  use types.{metadata};
 
   /// Returns the list of resources available from this component.
   list-resources: async func(metadata: metadata) -> list<resource-info>;

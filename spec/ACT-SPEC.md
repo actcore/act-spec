@@ -1,8 +1,8 @@
 ---
 title: ACT Protocol Specification
-version: 0.3.0
+version: 0.4.0
 status: normative
-requires: [act:core@0.3.0]
+requires: [act:core@0.4.0, act:tools@0.1.0]
 ---
 
 # ACT: Agent Component Tools
@@ -62,11 +62,21 @@ CBOR examples use CBOR diagnostic notation (RFC 8949 §8).
 
 ## 3. WIT Specification
 
-### 3.1 Package
+### 3.1 Packages
 
-```wit
-package act:core@0.3.0;
-```
+The normative protocol is split across two WIT packages:
+
+| Package | Purpose |
+|---------|---------|
+| `act:core@0.4.0` | Cross-cutting types (`localized-string`, `metadata`, `error`). Imported by every other ACT package. |
+| `act:tools@0.1.0` | The `tool-provider` interface — tool dispatch surface every component implements. |
+
+Two further packages are informative (RFC) and not normative:
+
+| Package | Status | Document |
+|---------|--------|----------|
+| `act:events@0.1.0` | RFC | [ACT-EVENTS](ACT-EVENTS.md) |
+| `act:resources@0.1.0` | RFC | [ACT-RESOURCES](ACT-RESOURCES.md) |
 
 ### 3.2 Component Info (Custom Section)
 
@@ -121,11 +131,14 @@ default-language = "en"
 - Python components use `componentize-py`; the build step converts `act.toml` to CBOR via `tomllib` + `cbor2`.
 - `wasm-tools metadata add` sets standard WASM metadata for registry compatibility.
 
-### 3.3 Types Interface
+### 3.3 Core Types (`act:core/types`)
+
+The shared types every other ACT package depends on.
 
 ```wit
-interface types {
+package act:core@0.4.0;
 
+interface types {
   /// A localizable text value.
   ///
   /// - `plain` — an opaque UTF-8 string. If `std.default-language` is declared
@@ -144,11 +157,26 @@ interface types {
   /// Third-party keys use their own namespace (e.g. "acme:priority").
   type metadata = list<tuple<string, list<u8>>>;
 
+  /// Structured error returned by interfaces in `act:core`'s ecosystem.
+  /// Well-known kind values: std:not-found, std:invalid-args, std:timeout,
+  /// std:capability-denied, std:internal. Custom kinds use namespaced strings.
+  record error {
+    kind: string,
+    message: localized-string,
+    metadata: metadata,
+  }
+}
+```
 
+### 3.4 Tool Provider (`act:tools/tool-provider`)
 
-  // ──────────────────────────────────────────────
-  //  Tool-level types
-  // ──────────────────────────────────────────────
+The dispatch surface every component implements. All tool-result types are defined inside this interface.
+
+```wit
+package act:tools@0.1.0;
+
+interface tool-provider {
+  use act:core/types@0.4.0.{localized-string, metadata, error};
 
   /// Full definition of a tool, returned by list-tools.
   record tool-definition {
@@ -160,21 +188,6 @@ interface types {
     parameters-schema: string,
     /// Well-known keys: std:read-only, std:idempotent, std:destructive,
     /// std:usage-hints, std:anti-usage-hints, std:examples, std:tags, std:timeout-ms.
-    metadata: metadata,
-  }
-
-
-  // ──────────────────────────────────────────────
-  //  Call / Result types
-  // ──────────────────────────────────────────────
-
-  /// A request to invoke a tool.
-  record tool-call {
-    /// Tool name, as returned by list-tools.
-    name: string,
-    /// Deterministically Encoded CBOR arguments (RFC 8949 §4.2).
-    /// Validated by the host against parameter schemas before being passed to the component.
-    arguments: list<u8>,
     metadata: metadata,
   }
 
@@ -192,20 +205,11 @@ interface types {
     metadata: metadata,
   }
 
-  /// Structured error returned by tools.
-  /// Well-known kind values: std:not-found, std:invalid-args, std:timeout,
-  /// std:capability-denied, std:internal. Custom kinds use namespaced strings.
-  record tool-error {
-    kind: string,
-    message: localized-string,
-    metadata: metadata,
-  }
-
   /// A single event in a tool's result.
   /// A `tool-event::error` is terminal — no further events follow.
   variant tool-event {
     content(content-part),
-    error(tool-error),
+    error(error),
   }
 
   /// The result of a tool call.
@@ -223,54 +227,22 @@ interface types {
     streaming(stream<tool-event>),
   }
 
-
-  // ──────────────────────────────────────────────
-  //  Response wrappers
-  // ──────────────────────────────────────────────
-
   /// Response from list-tools.
   record list-tools-response {
     metadata: metadata,
     tools: list<tool-definition>,
   }
-}
-```
-
-### 3.4 Tool Provider Interface
-
-```wit
-interface tool-provider {
-  use types.{
-    tool-definition,
-    tool-call,
-    tool-result,
-    list-tools-response,
-    tool-error,
-    metadata,
-  };
-
-  /// Returns a JSON Schema (type "object") describing the metadata keys
-  /// this component accepts. Returns `none` if no metadata is required.
-  ///
-  /// When called with empty metadata, the component MUST return immediately
-  /// without performing any network I/O.
-  ///
-  /// The host MAY call this multiple times with progressively filled
-  /// metadata to support iterative schema discovery (Section 4.5).
-  /// Subsequent calls with non-empty metadata MAY perform network I/O
-  /// (e.g. fetching a remote component's schema).
-  get-metadata-schema: async func(metadata: metadata) -> option<string>;
 
   /// Returns the list of tools available for the given metadata.
   /// Async because bridge components may need to fetch remote schemas.
-  list-tools: async func(metadata: metadata) -> result<list-tools-response, tool-error>;
+  list-tools: async func(metadata: metadata) -> result<list-tools-response, error>;
 
-  /// Invokes a tool. Metadata is carried inside `tool-call.metadata`.
+  /// Invokes a tool by name with CBOR-encoded arguments and per-call metadata.
   ///
   /// Returns either `immediate` (bounded, sync-friendly) or `streaming`
   /// (unbounded or incremental). Both carry `tool-event`s with the same
   /// semantics: `tool-event::error` is terminal.
-  call-tool: async func(call: tool-call) -> tool-result;
+  call-tool: async func(name: string, arguments: cbor, metadata: metadata) -> tool-result;
 }
 ```
 
@@ -278,11 +250,11 @@ interface tool-provider {
 
 ```wit
 world act-world {
-  export tool-provider;
+  export act:tools/tool-provider@0.1.0;
 }
 ```
 
-The `event-provider` and `resource-provider` interfaces are informative (RFC) design sketches, documented separately in `ACT-EVENTS.md` and `ACT-RESOURCES.md`. They are not part of the normative `act:core@0.3.0` contract.
+The `event-provider` and `resource-provider` interfaces live in their own packages (`act:events@0.1.0`, `act:resources@0.1.0`) and are informative (RFC) design sketches, documented separately in `ACT-EVENTS.md` and `ACT-RESOURCES.md`. They are not part of the normative protocol.
 
 ---
 
@@ -293,8 +265,7 @@ The `event-provider` and `resource-provider` interfaces are informative (RFC) de
 1. The host loads the `.wasm` component binary.
 2. The host reads the `act:component` custom section (CBOR-encoded) to obtain component information. The `std.name` and `std.version` fields MUST be present. If the `act:component` section is absent, the host MUST reject the component.
 3. The host links WASI and other imports according to its capability policy. The host MAY use `capabilities` from the custom section to make linking decisions proactively.
-4. The host calls `tool-provider.get-metadata-schema([])` to determine whether the component requires metadata.
-5. The component is now ready to accept calls (if no metadata is required).
+4. The component is now ready to accept calls.
 
 If the component imports a WASI interface that the host did not link, the component will trap at the point of use.
 
@@ -304,16 +275,15 @@ If the component imports a WASI interface that the host did not link, the compon
 
 1. The host (or transport adapter) calls `list-tools(metadata)` and awaits the result.
 2. If `list-tools` returns `Ok(list-tools-response)`, the host processes the response metadata and tool definitions.
-3. If `list-tools` returns `Err(tool-error)`, the host MUST surface the error to the caller through the appropriate transport mechanism. The host MUST NOT cache error results.
+3. If `list-tools` returns `Err(error)`, the host MUST surface the error to the caller through the appropriate transport mechanism. The host MUST NOT cache error results.
 4. The host SHOULD cache successful results for a given metadata value unless the component indicates dynamism through metadata.
 
-For components without metadata requirements (`get-metadata-schema` returns `none`), the host calls `list-tools([])` and MAY cache the result for the lifetime of the component instance.
+For components without metadata requirements, the host calls `list-tools([])` and MAY cache the result for the lifetime of the component instance.
 
 ### 4.3 Tool Invocation
 
-1. The caller constructs a `tool-call` with a tool `name`, dCBOR `arguments`, and `metadata`. Correlation identifiers (if needed) are a transport-layer concern, not part of the protocol.
-2. The host MUST validate `arguments` (after decoding from CBOR) against the schema declared in `tool-definition.parameters-schema` for the named tool. If validation fails, the host MUST return a `tool-error` with kind `std:invalid-args` without calling the component.
-3. The host MUST validate metadata against the schema from `get-metadata-schema` if present. If the component requires metadata and none is provided, or if the metadata does not match the schema, the host MUST return a `tool-error` with kind `std:invalid-args`.
+1. The caller invokes `call-tool` with a tool `name`, dCBOR `arguments`, and `metadata`. Correlation identifiers (if needed) are a transport-layer concern, not part of the protocol.
+2. The host MUST validate `arguments` (after decoding from CBOR) against the schema declared in `tool-definition.parameters-schema` for the named tool. If validation fails, the host MUST return a `error` with kind `std:invalid-args` without calling the component.
 4. The host MUST ensure `arguments` are deterministically encoded before passing them to the component.
 5. The host calls `call-tool(call)`.
 6. The host receives a `tool-result` and dispatches on the variant:
@@ -397,17 +367,9 @@ Transport adapters map metadata to the natural mechanism for each transport:
 
 The host MAY merge metadata from multiple sources (e.g. server defaults + client-provided values) before passing it to the component.
 
-#### Iterative Schema Discovery
-
-For bridge components, the metadata schema may depend on metadata already provided. The host uses `get-metadata-schema` iteratively:
-
-1. Call `get-metadata-schema([])`. The component MUST return immediately without network I/O. It returns a JSON Schema describing its initial metadata requirements.
-2. If the schema has `required` properties without values in the current metadata, the host prompts the caller for those values.
-3. Call `get-metadata-schema(partial_metadata)` with the values obtained. This call MAY perform network I/O (e.g. a bridge connecting to a remote component to discover its metadata schema). The component MAY return an expanded schema.
-4. Repeat until all `required` properties are satisfied.
-5. Call `list-tools(metadata)`.
-
-Simple components return `none` from `get-metadata-schema` and accept empty metadata. They are unaffected by this mechanism.
+> A schema-discovery mechanism for per-call metadata is planned for a future
+> minor version of `act:tools`. In the current 0.1.0 surface, callers either
+> hard-code the metadata they pass or rely on out-of-band documentation.
 
 ---
 
@@ -491,7 +453,7 @@ The **host** MUST ensure that all CBOR passed to a component is deterministicall
 
 JSON Schema is the default schema language because JSON and CBOR share nearly identical data models (maps, arrays, strings, numbers, booleans, null). Hosts MAY also support JSON Structure (json-structure.org), which offers stronger typing and built-in localization via the `altnames` companion spec. The schema format is detected via the `$schema` field.
 
-The top-level `arguments` field of `tool-call` is a dCBOR map where keys correspond to parameter names defined in the schema.
+The `arguments` parameter of `call-tool` is a dCBOR map where keys correspond to parameter names defined in the schema.
 
 ### 6.4 Host-Side Validation
 
@@ -504,18 +466,8 @@ The host MUST validate tool call arguments and metadata before passing them to t
 
 This guarantees that:
 - Components never receive malformed input.
-- Validation errors are surfaced early with `tool-error` kind `std:invalid-args`.
+- Validation errors are surfaced early with `error` kind `std:invalid-args`.
 - Components do not spend WASM cycles on input validation.
-
-#### Metadata Validation
-
-If `get-metadata-schema` returns a JSON Schema:
-
-1. The host constructs a JSON object from the metadata key-value pairs (decoding each CBOR value).
-2. The host validates this object against the schema.
-3. If validation fails, the host MUST return a `tool-error` with kind `std:invalid-args`.
-
-If `get-metadata-schema` returns `none`, the host passes metadata through without validation.
 
 ### 6.5 Content Data
 
@@ -624,31 +576,6 @@ A bridge component:
 2. Decodes `std:forward` as a metadata list and passes it to the remote component.
 3. The remote component may itself be a bridge with its own `std:forward` — recursion is natural.
 
-The `get-metadata-schema` function supports this pattern through iterative discovery:
-
-```
-1. get-metadata-schema([])
-   → {"properties": {"act:remote_url": {"type": "string"}}, "required": ["act:remote_url"]}
-
-2. get-metadata-schema([("act:remote_url", cbor("https://..."))])
-   → {
-       "properties": {
-         "act:remote_url": {"type": "string"},
-         "std:forward": {
-           "type": "object",
-           "properties": {"api_key": {"type": "string"}},
-           "required": ["api_key"]
-         }
-       },
-       "required": ["act:remote_url"]
-     }
-
-3. list-tools([
-     ("act:remote_url", cbor("https://...")),
-     ("std:forward", cbor({"api_key": "sk-..."}))
-   ])
-```
-
 The bridge forwards `std:forward` as the remote component's metadata. Each level of nesting unwraps one layer.
 
 ### 8.4 Versioning
@@ -656,7 +583,8 @@ The bridge forwards `std:forward` as the remote component's metadata. Each level
 Breaking changes to the WIT interfaces are handled through WIT package versioning:
 
 ```
-act:core@0.1.0  ->  ...  ->  act:core@0.1.6  ->  act:core@0.2.0  ->  act:core@0.3.0
+act:core@0.1.0  ->  ...  ->  act:core@0.1.6  ->  act:core@0.2.0  ->  act:core@0.3.0  ->  act:core@0.4.0
+                                                                                  ->  act:tools@0.1.0
 ```
 
 A host MAY support multiple interface versions simultaneously. A component declares which version it implements through its WIT world.
@@ -667,17 +595,17 @@ A host MAY support multiple interface versions simultaneously. A component decla
 
 ### 9.1 Event Error Model
 
-All errors from `call-tool` are delivered as `tool-event::error(tool-error)` events inside the `tool-result`. A `tool-event::error` is terminal — no further events follow. There is no separate early-error path; errors that occur before execution begins (e.g. tool not found, capability denied) are returned as `immediate([error(e)])`.
+All errors from `call-tool` are delivered as `tool-event::error(error)` events inside the `tool-result`. A `tool-event::error` is terminal — no further events follow. There is no separate early-error path; errors that occur before execution begins (e.g. tool not found, capability denied) are returned as `immediate([error(e)])`.
 
 Content parts delivered before an `error` event are valid and MUST be delivered to the caller (consistent with §4.4: already-delivered events MUST NOT be withdrawn).
 
 ### 9.2 Error Kind Semantics
 
-The `tool-error.kind` field is a string. Well-known values use the `std:` prefix. Custom error kinds use their own namespace (e.g. `"acme:rate-limited"`).
+The `error.kind` field is a string. Well-known values use the `std:` prefix. Custom error kinds use their own namespace (e.g. `"acme:rate-limited"`).
 
 For the complete list of well-known error kinds, see `ACT-CONSTANTS.md` Section 8. Commonly used error kinds include `std:not-found`, `std:invalid-args`, `std:timeout`, `std:capability-denied`, and `std:internal`.
 
-Hosts MUST NOT reject `tool-error` values with unrecognized `kind` strings. Unknown error kinds SHOULD be treated as equivalent to `std:internal` for transport error code mapping purposes.
+Hosts MUST NOT reject `error` values with unrecognized `kind` strings. Unknown error kinds SHOULD be treated as equivalent to `std:internal` for transport error code mapping purposes.
 
 ---
 
@@ -691,12 +619,9 @@ A conformant ACT component:
 - SHOULD include standard WASM metadata fields `name` and `version` for registry compatibility.
 - If `std.default-language` is declared, SHOULD include an entry for it in every `localized-string::localized` it produces.
 - MUST return valid `tool-definition` records from `list-tools()`.
-- MUST accept any `tool-call` whose `arguments` conform to the declared schemas (encoded as dCBOR).
+- MUST accept any `call-tool` invocation whose `arguments` conform to the declared schemas (encoded as dCBOR).
 - MUST produce a well-formed `tool-result` from `call-tool()`. Either variant is conformant; see Section 4.3.1 for guidance. The result is returned directly — there is no response wrapper.
 - MUST NOT emit any `tool-event` after a `tool-event::error` in either variant. A `streaming` stream that closes without emitting any events is semantically equivalent to `immediate([])` (a successful no-output call).
-- MUST return a valid JSON Schema of type "object" from `get-metadata-schema()` if metadata is required, or `none` if not.
-- MUST return immediately without network I/O when `get-metadata-schema` is called with empty metadata.
-- MUST accept empty metadata in `list-tools` and `call-tool` if `get-metadata-schema` returns `none`.
 - MUST produce valid CBOR in all output (metadata values, content-part data) but is NOT required to produce deterministic CBOR. The host canonicalizes.
 - Is NOT required to verify deterministic CBOR encoding of incoming data but MUST support the deterministic subset.
 
@@ -711,24 +636,28 @@ A conformant ACT host:
 - MUST propagate cancellation to the component. Hosts SHOULD prefer cooperative cancellation (drop the call future during in-flight `call-tool`; drop the stream reader after `call-tool` returns with `streaming`) and MAY escalate to runtime-level interruption (epoch/fuel) for non-yielding components. See Section 4.4.
 - MAY ignore any `tool-event` received after a `tool-event::error` within a single `tool-result` (components MUST NOT emit such events; see §10.1).
 - MUST ignore unrecognized metadata keys (Section 8.1).
-- MUST handle `tool-error` returned by `list-tools` and surface it to the caller through the appropriate transport mechanism (Section 4.2).
-- MUST NOT reject `tool-error` values with unrecognized `kind` strings (Section 9.2).
+- MUST handle `error` returned by `list-tools` and surface it to the caller through the appropriate transport mechanism (Section 4.2).
+- MUST NOT reject `error` values with unrecognized `kind` strings (Section 9.2).
 
 ---
 
 ## Appendix A: Complete WIT
 
-The normative WIT lives in `wit/act-core.wit` within the `act:core@0.3.0` package. Informative (RFC) interfaces in `wit/act-events.wit` and `wit/act-resources.wit` share the same package namespace; their listings are in `ACT-EVENTS.md` and `ACT-RESOURCES.md`.
+The normative WIT is split across two packages:
 
-**`wit/act-core.wit`** — types, tool-provider, and world.
+- `wit/act-core.wit` — `act:core@0.4.0` cross-cutting types
+- `wit/act-tools/act-tools.wit` — `act:tools@0.1.0` tool-provider interface
+
+Informative (RFC) interfaces `event-provider` and `resource-provider` live in their own packages (`act:events@0.1.0` in `wit/act-events/act-events.wit`, `act:resources@0.1.0` in `wit/act-resources/act-resources.wit`) and are documented in `ACT-EVENTS.md` and `ACT-RESOURCES.md`.
 
 Component-level metadata (name, version, description, capabilities) is stored in the `act:component` WASM custom section (CBOR-encoded), not as an exported function. See Section 3.2.
 
+**`wit/act-core.wit`** — shared types:
+
 ```wit
-package act:core@0.3.0;
+package act:core@0.4.0;
 
 interface types {
-
   /// A localizable text value.
   ///
   /// - `plain` — an opaque UTF-8 string. If `std.default-language` is declared
@@ -747,132 +676,60 @@ interface types {
   /// Third-party keys use their own namespace (e.g. "acme:priority").
   type metadata = list<tuple<string, list<u8>>>;
 
+  /// Structured error returned by interfaces in `act:core`'s ecosystem.
+  /// Well-known kind values: std:not-found, std:invalid-args, std:timeout,
+  /// std:capability-denied, std:internal. Custom kinds use namespaced strings.
+  record error {
+    kind: string,
+    message: localized-string,
+    metadata: metadata,
+  }
+}
+```
 
-  // ──────────────────────────────────────────────
-  //  Tool-level types
-  // ──────────────────────────────────────────────
+**`wit/act-tools/act-tools.wit`** — tool-provider:
+
+```wit
+package act:tools@0.1.0;
+
+interface tool-provider {
+  use act:core/types@0.4.0.{localized-string, metadata, error};
 
   /// Full definition of a tool, returned by list-tools.
   record tool-definition {
     name: string,
     description: localized-string,
-    /// Parameter schema as a JSON Schema string (default).
-    /// Hosts MAY also accept JSON Structure (json-structure.org),
-    /// detected via the `$schema` field.
     parameters-schema: string,
-    /// Well-known keys: std:read-only, std:idempotent, std:destructive,
-    /// std:usage-hints, std:anti-usage-hints, std:examples, std:tags, std:timeout-ms.
-    metadata: metadata,
-  }
-
-
-  // ──────────────────────────────────────────────
-  //  Call / Result types
-  // ──────────────────────────────────────────────
-
-  /// A request to invoke a tool.
-  record tool-call {
-    /// Tool name, as returned by list-tools.
-    name: string,
-    /// Deterministically Encoded CBOR arguments (RFC 8949 §4.2).
-    /// Validated by the host against parameter schemas before being passed to the component.
-    arguments: list<u8>,
     metadata: metadata,
   }
 
   /// A single piece of content in a tool's result stream.
   record content-part {
-    /// Payload bytes. Interpretation depends on `mime-type`:
-    /// - `text/*` — raw UTF-8 text
-    /// - `application/cbor` — CBOR-encoded structured data
-    /// - `application/json` — JSON
-    /// - `image/*` — binary image data
-    /// - absent or other — opaque bytes (application/octet-stream)
     data: list<u8>,
-    /// MIME type of the data. If absent, data is treated as opaque bytes.
     mime-type: option<string>,
     metadata: metadata,
   }
 
-  /// Structured error returned by tools.
-  /// Well-known kind values: std:not-found, std:invalid-args, std:timeout,
-  /// std:capability-denied, std:internal. Custom kinds use namespaced strings.
-  record tool-error {
-    kind: string,
-    message: localized-string,
-    metadata: metadata,
-  }
-
   /// A single event in a tool's result.
-  /// A `tool-event::error` is terminal — no further events follow.
   variant tool-event {
     content(content-part),
-    error(tool-error),
+    error(error),
   }
 
   /// The result of a tool call.
-  ///
-  /// Two shapes exist to accommodate different guest capabilities; they are
-  /// semantically equivalent. Both carry an ordered sequence of `tool-event`s
-  /// with identical terminal-error semantics. Hosts, intermediaries, and callers
-  /// MUST treat both variants as equivalent event sequences. Intermediaries MAY
-  /// freely convert between variants.
-  ///
-  /// - `immediate` — event list is materialized when the tool returns.
-  /// - `streaming` — events are emitted to a stream as they are produced.
   variant tool-result {
     immediate(list<tool-event>),
     streaming(stream<tool-event>),
   }
-
-
-  // ──────────────────────────────────────────────
-  //  Response wrappers
-  // ──────────────────────────────────────────────
 
   /// Response from list-tools.
   record list-tools-response {
     metadata: metadata,
     tools: list<tool-definition>,
   }
-}
 
-/// Component-level metadata (name, version, description, capabilities) is stored
-/// in the `act:component` WASM custom section (CBOR-encoded) and standard WASM
-/// metadata fields, not as an exported function.
-
-interface tool-provider {
-  use types.{
-    tool-definition,
-    tool-call,
-    tool-result,
-    list-tools-response,
-    tool-error,
-    metadata,
-  };
-
-  /// Returns a JSON Schema (type "object") describing the metadata keys
-  /// this component accepts. Returns `none` if no metadata is required.
-  ///
-  /// When called with empty metadata, the component MUST return immediately
-  /// without performing any network I/O.
-  ///
-  /// The host MAY call this multiple times with progressively filled
-  /// metadata to support iterative schema discovery for bridge components.
-  /// Subsequent calls with non-empty metadata MAY perform network I/O
-  /// (e.g. fetching a remote component's schema).
-  get-metadata-schema: async func(metadata: metadata) -> option<string>;
-
-  /// Returns the list of tools available for the given metadata.
-  /// Async because bridge components may need to fetch remote schemas.
-  list-tools: async func(metadata: metadata) -> result<list-tools-response, tool-error>;
-
-  /// Invokes a tool. Metadata is carried inside `tool-call.metadata`.
-  ///
-  /// Returns either `immediate` (bounded, sync-friendly) or `streaming`
-  /// (unbounded or incremental). Both carry `tool-event`s with the same
-  /// semantics: `tool-event::error` is terminal.
-  call-tool: async func(call: tool-call) -> tool-result;
+  list-tools: async func(metadata: metadata) -> result<list-tools-response, error>;
+  call-tool: async func(name: string, arguments: cbor, metadata: metadata) -> tool-result;
 }
 
 world act-world {
@@ -880,15 +737,13 @@ world act-world {
 }
 ```
 
-Informative (RFC) interfaces `event-provider` and `resource-provider` are documented in `ACT-EVENTS.md` and `ACT-RESOURCES.md`; their WIT lives in `wit/act-events.wit` and `wit/act-resources.wit`.
-
 ---
 
 ## Appendix B: Examples (Informative)
 
 ### B.1 Simple Component (no metadata)
 
-A calculator component — `get-metadata-schema([])` returns `none`.
+A calculator component — accepts empty metadata.
 
 **`act:component` custom section (CBOR):**
 
@@ -903,49 +758,25 @@ A calculator component — `get-metadata-schema([])` returns `none`.
 }
 ```
 
-**call-tool(call) — arguments in CBOR diagnostic notation:**
+**call-tool — arguments in CBOR diagnostic notation:**
 
 ```
-tool-call {
+call-tool(
   name: "add",
   arguments: {"a": 2, "b": 3},
   metadata: []
-}
+)
 ```
 
 The host encodes arguments as dCBOR bytes before passing to the component.
 
 ### B.2 Bridge Component (with metadata)
 
-An OpenAPI bridge — `get-metadata-schema` returns a schema describing required metadata.
-
-**Iterative discovery:**
+An OpenAPI bridge — accepts metadata describing the upstream service. The shape of accepted metadata is documented out-of-band in `act:tools@0.1.0`; a discovery mechanism is planned for a future minor version.
 
 ```
-1. get-metadata-schema([])
-   → {
-       "type": "object",
-       "properties": {
-         "act:spec-url": {
-           "type": "string",
-           "format": "uri",
-           "description": "URL of the OpenAPI specification"
-         },
-         "act:base-url": {
-           "type": "string",
-           "format": "uri",
-           "description": "Base URL for API requests (overrides spec servers)"
-         },
-         "act:auth-header": {
-           "type": "string",
-           "description": "Value for the Authorization header"
-         }
-       },
-       "required": ["act:spec-url"]
-     }
-
-2. list-tools([("act:spec-url", cbor("https://api.example.com/openapi.json"))])
-   → tools derived from the OpenAPI spec
+list-tools([("act:spec-url", cbor("https://api.example.com/openapi.json"))])
+  → tools derived from the OpenAPI spec
 ```
 
 ### B.3 Chained Bridges (with std:forward)
@@ -953,46 +784,17 @@ An OpenAPI bridge — `get-metadata-schema` returns a schema describing required
 Host → bridge A → bridge B → component.
 
 ```
-1. get-metadata-schema([])
-   → {
-       "properties": {
-         "act:remote_url": {"type": "string"},
-         "std:forward": {}
-       },
-       "required": ["act:remote_url"]
-     }
-
-2. get-metadata-schema([("act:remote_url", cbor("https://bridge-b.example.com"))])
-   → {
-       "properties": {
-         "act:remote_url": {"type": "string"},
-         "std:forward": {
-           "type": "object",
-           "properties": {
-             "act:remote_url": {"type": "string"},
-             "std:forward": {
-               "type": "object",
-               "properties": {"api_key": {"type": "string"}},
-               "required": ["api_key"]
-             }
-           },
-           "required": ["act:remote_url"]
-         }
-       },
-       "required": ["act:remote_url"]
-     }
-
-3. call-tool({
-     name: "fetch",
-     arguments: {...},
-     metadata: [
-       ("act:remote_url", cbor("https://bridge-b.example.com")),
-       ("std:forward", cbor({
-         "act:remote_url": "https://component.example.com",
-         "std:forward": {"api_key": "sk-..."}
-       }))
-     ]
-   })
+call-tool(
+  name: "fetch",
+  arguments: {...},
+  metadata: [
+    ("act:remote_url", cbor("https://bridge-b.example.com")),
+    ("std:forward", cbor({
+      "act:remote_url": "https://component.example.com",
+      "std:forward": {"api_key": "sk-..."}
+    }))
+  ]
+)
 ```
 
 Bridge A extracts `act:remote_url`, decodes `std:forward` as metadata, and passes it to bridge B. Bridge B does the same, passing `{"api_key": "sk-..."}` to the final component.

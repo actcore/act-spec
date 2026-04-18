@@ -1,12 +1,12 @@
 ---
 title: ACT Resources
-version: 0.3.0
+version: 0.4.0
 status: informative-rfc
 ---
 
 # ACT Resources
 
-**Status:** Informative / RFC. Not normative in `act:core@0.3.0`. No production components implement `resource-provider`. This document is retained to solicit community feedback; future versions may stabilize, restructure, or remove it. Implementations MAY experiment with it but MUST NOT rely on its stability.
+**Status:** Informative / RFC. The `act:resources@0.1.0` package is not normative. No production components implement `resource-provider`. This document is retained to solicit community feedback; future versions may stabilize, restructure, or remove it. Implementations MAY experiment with it but MUST NOT rely on its stability.
 
 The `resource-provider` interface is a design sketch for component-provided resources — icons, dynamic skills, schemas, remote data — addressable by URI. It mirrors MCP's resource model.
 
@@ -14,11 +14,13 @@ The `resource-provider` interface is a design sketch for component-provided reso
 
 ## 1. WIT Interface
 
-Defined in `wit/act-resources.wit`, part of the `act:core@0.3.0` package:
+Defined in `wit/act-resources/act-resources.wit`, in its own package `act:resources@0.1.0` (depends on `act:core@0.4.0` for shared types):
 
 ```wit
-interface resource-types {
-  use types.{localized-string, metadata};
+package act:resources@0.1.0;
+
+interface resource-provider {
+  use act:core/types@0.4.0.{localized-string, metadata};
 
   /// Describes a resource available from the component.
   record resource-info {
@@ -37,11 +39,6 @@ interface resource-types {
     metadata: metadata,
     body: stream<u8>,
   }
-}
-
-interface resource-provider {
-  use resource-types.{resource-info, resource-response};
-  use types.{metadata};
 
   /// Returns the list of resources available from this component.
   list-resources: async func(metadata: metadata) -> list<resource-info>;

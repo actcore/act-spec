@@ -1,8 +1,8 @@
 ---
 title: ACT Well-Known Constants
-version: 0.3.0
+version: 0.4.0
 status: normative
-requires: [act:core@0.3.0]
+requires: [act:core@0.4.0, act:tools@0.1.0]
 ---
 
 # ACT Well-Known Constants
@@ -105,7 +105,7 @@ See `ACT-AUTH.md` for authentication patterns.
 
 ## 8. Error Kinds
 
-Used in `tool-error.kind`.
+Used in `error.kind`.
 
 | Kind | Description |
 |------|-------------|

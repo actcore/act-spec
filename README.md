@@ -46,10 +46,9 @@ graph TD
     subgraph Component[".wasm Component"]
         Section["act:component section\nname · version · description"]
         Export["tool-provider export"]
-        GMS["get-metadata-schema()"]
         LT["list-tools()"]
         CT["call-tool() → stream"]
-        Export --- GMS & LT & CT
+        Export --- LT & CT
     end
 ```
 

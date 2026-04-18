@@ -1,6 +1,6 @@
 ---
 title: ACT–MCP Mapping Guide
-version: 0.3.0
+version: 0.4.0
 status: informative
 ---
 
@@ -42,7 +42,7 @@ For MCP stdio, metadata is typically fixed for the lifetime of the process. The 
 
 The adapter caches the resolved metadata and passes it to every `list-tools` and `call-tool` invocation.
 
-For components that do not require metadata (`get-metadata-schema([])` returns `none`), the adapter passes empty metadata.
+For components that do not require metadata, the adapter passes empty metadata.
 
 ---
 
@@ -103,7 +103,7 @@ The adapter collects all `tool-event::content(part)` events and maps them to the
 
 **Result mapping (error):**
 
-If the event sequence contains a `tool-event::error(tool-error)`, the adapter returns an MCP error response with `isError: true`. Any content-parts received before the error are included in the response, followed by the error content.
+If the event sequence contains a `tool-event::error(error)`, the adapter returns an MCP error response with `isError: true`. Any content-parts received before the error are included in the response, followed by the error content.
 
 ```json
 {
@@ -114,7 +114,7 @@ If the event sequence contains a `tool-event::error(tool-error)`, the adapter re
 
 **Recommended error kind to MCP error code mapping:**
 
-| ACT `tool-error.kind` | MCP JSON-RPC error code |
+| ACT `error.kind` | MCP JSON-RPC error code |
 |---|---|
 | `std:not-found` | `-32601` (Method not found) |
 | `std:invalid-args` | `-32602` (Invalid params) |

@@ -1,12 +1,12 @@
 ---
 title: ACT Events
-version: 0.3.0
+version: 0.4.0
 status: informative-rfc
 ---
 
 # ACT Events
 
-**Status:** Informative / RFC. Not normative in `act:core@0.3.0`. No production components implement `event-provider`. This document is retained to solicit community feedback; future versions may stabilize, restructure, or remove it. Implementations MAY experiment with it but MUST NOT rely on its stability.
+**Status:** Informative / RFC. The `act:events@0.1.0` package is not normative. No production components implement `event-provider`. This document is retained to solicit community feedback; future versions may stabilize, restructure, or remove it. Implementations MAY experiment with it but MUST NOT rely on its stability.
 
 The `event-provider` interface is a design sketch for push-style event notifications from components to hosts — e.g. "tool list changed", "new data available", "session state updated". The current sketch mirrors subscription semantics common in MCP and similar protocols.
 
@@ -14,11 +14,13 @@ The `event-provider` interface is a design sketch for push-style event notificat
 
 ## 1. WIT Interface
 
-Defined in `wit/act-events.wit`, part of the `act:core@0.3.0` package:
+Defined in `wit/act-events/act-events.wit`, in its own package `act:events@0.1.0` (depends on `act:core@0.4.0` for shared types):
 
 ```wit
-interface event-types {
-  use types.{localized-string, metadata};
+package act:events@0.1.0;
+
+interface event-provider {
+  use act:core/types@0.4.0.{localized-string, metadata};
 
   /// Describes a type of event the component can emit.
   record event-type-info {
@@ -38,11 +40,6 @@ interface event-types {
     data: option<list<u8>>,
     metadata: metadata,
   }
-}
-
-interface event-provider {
-  use event-types.{event-type-info, event};
-  use types.{metadata};
 
   /// Returns the list of event types this component can emit.
   /// The host calls this at load time and MAY cache the result.

@@ -1,7 +1,7 @@
 openapi: 3.2.0
 info:
   title: ACT HTTP API
-  version: 0.3.0
+  version: 0.4.0
   description: |
     A stateless HTTP API for discovering and invoking tools.
     Any HTTP server that conforms to this specification is a valid implementation.
@@ -28,51 +28,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ComponentInfo"
-
-  /metadata-schema:
-    post:
-      operationId: getMetadataSchema
-      summary: Metadata schema
-      description: |
-        Returns a JSON Schema describing the metadata this server accepts.
-        Returns 204 if the server does not require metadata.
-        Supports iterative discovery — include current metadata in the body
-        to get an expanded schema for bridge components.
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/MetadataRequest"
-      responses:
-        "200":
-          description: Metadata JSON Schema.
-          content:
-            application/json:
-              schema:
-                type: object
-                description: A valid JSON Schema object of type "object".
-        "204":
-          description: Server does not require metadata.
-    query:
-      operationId: queryMetadataSchema
-      summary: Metadata schema (safe, cacheable)
-      description: Identical to `POST /metadata-schema` but uses the `QUERY` method.
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/MetadataRequest"
-      responses:
-        "200":
-          description: Metadata JSON Schema.
-          content:
-            application/json:
-              schema:
-                type: object
-        "204":
-          description: Server does not require metadata.
 
   /tools:
     post:

@@ -1,4 +1,10 @@
-package act:core@0.3.0;
+/// Cross-cutting types used by every other ACT package.
+///
+/// `act:core` is the foundation layer — it carries the definitions every ACT
+/// interface needs (metadata, errors, localized strings) and nothing else.
+/// Tool dispatch lives in `act:tools`, events in `act:events`, resources in
+/// `act:resources`.
+package act:core@0.4.0;
 
 interface types {
 
@@ -14,142 +20,23 @@ interface types {
     localized(list<tuple<string, string>>),
   }
 
+  /// CBOR-encoded byte string. Components produce valid CBOR; the host
+  /// canonicalizes to dCBOR (RFC 8949 §4.2) when passing data to external
+  /// consumers. Used wherever a field carries an opaque CBOR payload —
+  /// metadata values, tool-call arguments, event data, etc.
+  type cbor = list<u8>;
+
   /// Key-value metadata. Keys are namespaced strings, values are CBOR-encoded.
-  /// Components produce valid CBOR; the host canonicalizes to dCBOR if needed.
   /// Well-known keys use the `std:` prefix (e.g. "std:read-only", "std:timeout-ms").
   /// Third-party keys use their own namespace (e.g. "acme:priority").
-  type metadata = list<tuple<string, list<u8>>>;
+  type metadata = list<tuple<string, cbor>>;
 
-
-  // ──────────────────────────────────────────────
-  //  Tool-level types
-  // ──────────────────────────────────────────────
-
-  /// Full definition of a tool, returned by list-tools.
-  record tool-definition {
-    name: string,
-    description: localized-string,
-    /// Parameter schema as a JSON Schema string (default).
-    /// Hosts MAY also accept JSON Structure (json-structure.org),
-    /// detected via the `$schema` field.
-    parameters-schema: string,
-    /// Well-known keys: std:read-only, std:idempotent, std:destructive,
-    /// std:usage-hints, std:anti-usage-hints, std:examples, std:tags, std:timeout-ms.
-    metadata: metadata,
-  }
-
-
-  // ──────────────────────────────────────────────
-  //  Call / Result types
-  // ──────────────────────────────────────────────
-
-  /// A request to invoke a tool.
-  record tool-call {
-    /// Tool name, as returned by list-tools.
-    name: string,
-    /// Deterministically Encoded CBOR arguments (RFC 8949 §4.2).
-    /// Validated by the host against parameter schemas before being passed to the component.
-    arguments: list<u8>,
-    metadata: metadata,
-  }
-
-  /// A single piece of content in a tool's result stream.
-  record content-part {
-    /// Payload bytes. Interpretation depends on `mime-type`:
-    /// - `text/*` — raw UTF-8 text
-    /// - `application/cbor` — CBOR-encoded structured data
-    /// - `application/json` — JSON
-    /// - `image/*` — binary image data
-    /// - absent or other — opaque bytes (application/octet-stream)
-    data: list<u8>,
-    /// MIME type of the data. If absent, data is treated as opaque bytes.
-    mime-type: option<string>,
-    metadata: metadata,
-  }
-
-  /// Structured error returned by tools.
+  /// Structured error returned by interfaces in `act:core`'s ecosystem.
   /// Well-known kind values: std:not-found, std:invalid-args, std:timeout,
   /// std:capability-denied, std:internal. Custom kinds use namespaced strings.
-  record tool-error {
+  record error {
     kind: string,
     message: localized-string,
     metadata: metadata,
   }
-
-  /// A single event in a tool's result.
-  /// A `tool-event::error` is terminal — no further events follow.
-  variant tool-event {
-    content(content-part),
-    error(tool-error),
-  }
-
-  /// The result of a tool call.
-  ///
-  /// Two shapes exist to accommodate different guest capabilities; they are
-  /// semantically equivalent. Both carry an ordered sequence of `tool-event`s
-  /// with identical terminal-error semantics (`tool-event::error` is terminal).
-  /// Hosts, intermediaries, and callers MUST treat both variants as equivalent
-  /// event sequences.
-  ///
-  /// - `immediate` — the complete event list is materialized when the tool
-  ///   returns. Natural for sync guest bodies and languages without an async
-  ///   runtime. An early failure is encoded as a single `tool-event::error`.
-  /// - `streaming` — events are emitted to a stream as they are produced.
-  ///   Natural for incremental producers and I/O-bound bridges.
-  ///
-  /// Intermediaries (bridges, adapters) MAY freely convert between variants.
-  variant tool-result {
-    immediate(list<tool-event>),
-    streaming(stream<tool-event>),
-  }
-
-
-  // ──────────────────────────────────────────────
-  //  Response wrappers
-  // ──────────────────────────────────────────────
-
-  /// Response from list-tools.
-  record list-tools-response {
-    metadata: metadata,
-    tools: list<tool-definition>,
-  }
 }
-
-/// Component-level metadata (name, version, description, capabilities) is stored
-/// in the `act:component` WASM custom section (CBOR-encoded), not as an exported
-/// function.
-
-interface tool-provider {
-  use types.{
-    tool-definition,
-    tool-call,
-    tool-result,
-    list-tools-response,
-    tool-error,
-    metadata,
-  };
-
-  /// Returns a JSON Schema (type "object") describing the metadata keys
-  /// this component accepts. Returns `none` if no metadata is required.
-  ///
-  /// When called with empty metadata, the component MUST return immediately
-  /// without performing any network I/O.
-  ///
-  /// The host MAY call this multiple times with progressively filled
-  /// metadata to support iterative schema discovery for bridge components.
-  /// Subsequent calls with non-empty metadata MAY perform network I/O
-  /// (e.g. fetching a remote component's schema).
-  get-metadata-schema: async func(metadata: metadata) -> option<string>;
-
-  /// Returns the list of tools available for the given metadata.
-  /// Async because bridge components may need to fetch remote schemas.
-  list-tools: async func(metadata: metadata) -> result<list-tools-response, tool-error>;
-
-  /// Invokes a tool. Metadata is carried inside `tool-call.metadata`.
-  ///
-  /// Returns either `immediate` (bounded, sync-friendly) or `streaming`
-  /// (unbounded or incremental). Both carry `tool-event`s with the same
-  /// semantics: `tool-event::error` is terminal.
-  call-tool: async func(call: tool-call) -> tool-result;
-}
-

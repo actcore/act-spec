@@ -1,8 +1,8 @@
 ---
 title: ACT HTTP API
-version: 0.3.0
+version: 0.4.0
 status: normative
-requires: [act:core@0.3.0]
+requires: [act:core@0.4.0, act:tools@0.1.0]
 ---
 
 # ACT HTTP API
@@ -133,8 +133,6 @@ An ACT HTTP server exposes a single set of tools. Hosting multiple components be
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/info` | Server metadata |
-| `POST` | `/metadata-schema` | Metadata JSON Schema (metadata in body for iterative discovery) |
-| `QUERY` | `/metadata-schema` | Metadata JSON Schema (safe, cacheable) |
 | `POST` | `/tools` | List tools (metadata in request body) |
 | `QUERY` | `/tools` | List tools (metadata in request body; safe, cacheable) |
 | `POST` | `/tools/{name}` | Invoke a tool |
@@ -176,56 +174,7 @@ Content-Type: application/json
 }
 ```
 
-### 4.2 Metadata Schema — `POST /metadata-schema`
-
-Returns a JSON Schema describing the metadata this server accepts. Returns `204 No Content` if the server does not require metadata.
-
-The client MAY include current metadata in the request body for iterative schema discovery (see ACT-SPEC.md Section 4.5). An empty body or `{}` requests the initial schema.
-
-```
-POST /metadata-schema
-Content-Type: application/json
-
-{}
-
-200 OK
-Content-Type: application/json
-
-{
-  "type": "object",
-  "properties": {
-    "api_key": { "type": "string" }
-  },
-  "required": ["api_key"]
-}
-```
-
-Iterative discovery example (bridge component):
-
-```
-POST /metadata-schema
-Content-Type: application/json
-
-{"metadata": {"act:remote_url": "https://api.example.com"}}
-
-200 OK
-Content-Type: application/json
-
-{
-  "type": "object",
-  "properties": {
-    "act:remote_url": { "type": "string" },
-    "std:forward": {
-      "type": "object",
-      "properties": { "api_key": { "type": "string" } },
-      "required": ["api_key"]
-    }
-  },
-  "required": ["act:remote_url"]
-}
-```
-
-### 4.3 Tool Discovery — `POST /tools` or `QUERY /tools`
+### 4.2 Tool Discovery — `POST /tools` or `QUERY /tools`
 
 Returns the list of available tools. Both `POST` and `QUERY` accept the same request body. Use `QUERY` when available (safe, cacheable); `POST` is the universal fallback.
 
@@ -267,7 +216,7 @@ The response MAY include a top-level `metadata` object with server-defined key-v
 
 On error, the server returns the appropriate HTTP status code (see Section 6).
 
-### 4.4 Tool Invocation — `POST /tools/{name}` or `QUERY /tools/{name}`
+### 4.3 Tool Invocation — `POST /tools/{name}` or `QUERY /tools/{name}`
 
 Invokes a tool and returns the result.
 
@@ -356,7 +305,7 @@ data: {"kind": "std:internal", "message": "Connection lost"}
 
 The `error` and `done` events are terminal — the stream closes after either.
 
-### 4.5 Event Subscription — `POST /events` or `QUERY /events`
+### 4.4 Event Subscription — `POST /events` or `QUERY /events`
 
 Opens a Server-Sent Events stream for push notifications from the server. Metadata is passed in the request body.
 
@@ -385,7 +334,7 @@ The stream stays open until the client closes the connection. The server SHOULD 
 
 Servers that do not support events return `404 Not Found`.
 
-### 4.6 Resource Listing — `POST /resources` or `QUERY /resources`
+### 4.5 Resource Listing — `POST /resources` or `QUERY /resources`
 
 Returns the list of available resources. Metadata is passed in the request body.
 
@@ -417,7 +366,7 @@ Content-Type: application/json
 | `description` | string | Human-readable description (resolved to requested language). |
 | `metadata` | object | Optional key-value metadata. |
 
-### 4.7 Resource Retrieval — `POST /resources/{uri}` or `QUERY /resources/{uri}`
+### 4.6 Resource Retrieval — `POST /resources/{uri}` or `QUERY /resources/{uri}`
 
 Returns a resource as raw bytes. Metadata is passed in the request body.
 
@@ -441,7 +390,7 @@ If the resource does not exist, the server returns `404 Not Found`.
 
 ## 5. Metadata
 
-Servers that require per-request context (API keys, endpoint URLs, user preferences) declare a metadata schema via `POST /metadata-schema`. Clients pass metadata on every request.
+Servers that require per-request context (API keys, endpoint URLs, user preferences) accept it via the `metadata` field in the request body. The expected shape is documented out-of-band in `act:tools@0.1.0`; a discovery mechanism is planned for a future minor version.
 
 ### 5.1 Metadata Delivery
 
@@ -453,7 +402,7 @@ Metadata is always passed as a `metadata` field in the JSON request body:
 }
 ```
 
-Both `POST` and `QUERY` use the same request body format. For servers that do not require metadata (`POST /metadata-schema` returns `204`), the `metadata` field is omitted.
+Both `POST` and `QUERY` use the same request body format. If no metadata is required, the `metadata` field is omitted.
 
 ---
 
@@ -611,8 +560,8 @@ Version compatibility follows standard SemVer semantics:
 ## 12. Conformance
 
 A conformant ACT HTTP server:
-- MUST implement `GET /info`, `POST /metadata-schema`, `QUERY /metadata-schema`, `POST /tools`, `QUERY /tools`, and `POST /tools/{name}`.
-- MUST support both `POST` and `QUERY` for every endpoint that accepts metadata (`/metadata-schema`, `/tools`, `/events`, `/resources`, `/resources/{uri}`).
+- MUST implement `GET /info`, `POST /tools`, `QUERY /tools`, and `POST /tools/{name}`.
+- MUST support both `POST` and `QUERY` for every endpoint that accepts metadata (`/tools`, `/events`, `/resources`, `/resources/{uri}`).
 - MUST support `QUERY /tools/{name}` for tools that declare both `std:read-only` and `std:idempotent`.
 - MUST include the `ACT-Protocol-Version` header in every response.
 - MUST return `406 Not Acceptable` when the client requests an incompatible protocol version.

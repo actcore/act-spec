@@ -1,15 +1,14 @@
-package act:core@0.3.0;
+/// Push-style event notifications from components.
+///
+/// STATUS: Informative / Request for Comments.
+///
+/// This package is a design sketch and is NOT normative. No production
+/// components currently implement event-provider. Implementations MAY
+/// experiment with it but MUST NOT rely on its stability.
+package act:events@0.1.0;
 
-// STATUS: Informative / Request for Comments.
-//
-// This interface is a design sketch for push-style event notifications from
-// components. It is NOT normative in act:core@0.3.0. No production components
-// currently implement event-provider. The interface is retained in the package
-// to solicit feedback; future versions may stabilize, restructure, or remove it.
-// Implementations MAY experiment with it but MUST NOT rely on its stability.
-
-interface event-types {
-  use types.{localized-string, metadata};
+interface event-provider {
+  use act:core/types@0.4.0.{cbor, localized-string, metadata};
 
   /// Describes a type of event the component can emit.
   record event-type-info {
@@ -26,14 +25,9 @@ interface event-types {
     /// Event kind, matching one of the kinds from get-event-types.
     kind: string,
     /// Optional dCBOR-encoded payload.
-    data: option<list<u8>>,
+    data: option<cbor>,
     metadata: metadata,
   }
-}
-
-interface event-provider {
-  use event-types.{event-type-info, event};
-  use types.{metadata};
 
   /// Returns the list of event types this component can emit.
   /// The host calls this at load time and MAY cache the result.
