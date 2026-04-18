@@ -1,6 +1,12 @@
-# ACT Events (Informative / RFC)
+---
+title: ACT Events
+version: 0.3.0
+status: informative-rfc
+---
 
-**Status:** Informative. Not normative in `act:core@0.3.0`. No production components implement `event-provider`. This document is retained to solicit community feedback; future versions may stabilize, restructure, or remove it. Implementations MAY experiment with it but MUST NOT rely on its stability.
+# ACT Events
+
+**Status:** Informative / RFC. Not normative in `act:core@0.3.0`. No production components implement `event-provider`. This document is retained to solicit community feedback; future versions may stabilize, restructure, or remove it. Implementations MAY experiment with it but MUST NOT rely on its stability.
 
 The `event-provider` interface is a design sketch for push-style event notifications from components to hosts — e.g. "tool list changed", "new data available", "session state updated". The current sketch mirrors subscription semantics common in MCP and similar protocols.
 

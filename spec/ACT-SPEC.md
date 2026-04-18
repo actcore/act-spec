@@ -1,8 +1,11 @@
-# ACT: Agent Component Tools
-
-**Protocol Specification — Version 0.3.0**
-
 ---
+title: ACT Protocol Specification
+version: 0.3.0
+status: normative
+requires: [act:core@0.3.0]
+---
+
+# ACT: Agent Component Tools
 
 ## 1. Introduction
 

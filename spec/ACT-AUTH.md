@@ -1,6 +1,10 @@
-# ACT Authentication Best Practices
+---
+title: ACT Authentication Best Practices
+version: 0.3.0
+status: informative
+---
 
-**Version 0.3.0**
+# ACT Authentication Best Practices
 
 A guide to authentication patterns in ACT. This document covers two levels of authentication: transport-level (client→host) and metadata-level (component→external service).
 

@@ -1,6 +1,11 @@
-# ACT Well-Known Constants
+---
+title: ACT Well-Known Constants
+version: 0.3.0
+status: normative
+requires: [act:core@0.3.0]
+---
 
-**Protocol Version 0.2**
+# ACT Well-Known Constants
 
 This document is the authoritative registry of all well-known `std:`-prefixed strings in the ACT protocol. All other ACT specifications reference this document rather than defining `std:` constants inline.
 

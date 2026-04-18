@@ -1,6 +1,12 @@
-# ACT Resources (Informative / RFC)
+---
+title: ACT Resources
+version: 0.3.0
+status: informative-rfc
+---
 
-**Status:** Informative. Not normative in `act:core@0.3.0`. No production components implement `resource-provider`. This document is retained to solicit community feedback; future versions may stabilize, restructure, or remove it. Implementations MAY experiment with it but MUST NOT rely on its stability.
+# ACT Resources
+
+**Status:** Informative / RFC. Not normative in `act:core@0.3.0`. No production components implement `resource-provider`. This document is retained to solicit community feedback; future versions may stabilize, restructure, or remove it. Implementations MAY experiment with it but MUST NOT rely on its stability.
 
 The `resource-provider` interface is a design sketch for component-provided resources — icons, dynamic skills, schemas, remote data — addressable by URI. It mirrors MCP's resource model.
 

@@ -1,6 +1,11 @@
-# ACT HTTP API
+---
+title: ACT HTTP API
+version: 0.3.0
+status: normative
+requires: [act:core@0.3.0]
+---
 
-**Protocol Version 0.2**
+# ACT HTTP API
 
 A stateless HTTP API for discovering and invoking tools. Any HTTP server that conforms to this specification is a valid implementation — no WebAssembly runtime or specific programming language is required.
 
