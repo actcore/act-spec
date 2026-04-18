@@ -558,32 +558,37 @@ A component declares its capabilities through the `std.capabilities` map in the 
 
 ### 7.2 Declaration
 
-The component declares each capability by adding its identifier as a key in the `std.capabilities` map. The value is an object containing capability-specific parameters; an empty object `{}` means the capability is used without specific restrictions. If a capability identifier is absent from the map, the component does not use that capability.
+The component declares each capability by adding its identifier as a key in the `std.capabilities` map. The value is an object containing capability-specific parameters. If a capability identifier is absent from the map, the component does not use that capability.
 
-Within a declared capability, an absent parameter means the parameter is unrestricted (the host uses its default).
+Capabilities that affect host resources (currently `wasi:filesystem` and `wasi:http`) carry an `allow` array enumerating what the component needs. Each entry is a positive statement — no `deny`, no global `mode` field, no other narrower mechanisms. An empty `allow` array means the component declares the class but requests zero access.
 
-Language SDKs SHOULD populate this declaration automatically from the component's `world` definition.
+Language SDKs SHOULD populate the declaration automatically from the component's `world` definition plus author-supplied narrowing rules.
 
 ### 7.3 Enforcement
 
-The host links (or refuses to link) WASI imports based on its capability policy:
+Declarations are a **ceiling** the host applies to the user's own policy. The effective policy is `user_policy ∩ component_declaration`:
 
-- **Strict mode** — the host refuses to load a component if any declared capability is not permitted by policy.
-- **Permissive mode** — the host links all available capabilities regardless of declaration.
+- Capability identifier absent → host denies every operation of that class, regardless of user policy.
+- Capability declared with empty `allow` → same hard deny.
+- Capability declared with entries → the user's policy can only narrow further. Any user-policy rule that no declared entry "covers" drops from the effective allow list.
 
-If a component invokes an import that was not linked, the call will trap. The capability declaration helps prevent this by allowing the host to reject incompatible components early.
+The declaration model is positive-only: components describe what they need; the user's policy independently decides what to grant within that ceiling. A separate harness-level axis (not covered here) gates which tool *names* the calling agent may invoke on a component.
 
 ### 7.4 Well-Known Capability Identifiers
 
-The following identifiers are defined by this specification. Hosts SHOULD recognize them:
+The following identifiers are defined by this specification. Hosts MUST recognize them:
 
-| Capability ID | Parameters | Description |
-|--------------|------------|-------------|
-| `wasi:http` | _(none yet)_ | Outbound HTTP requests. |
-| `wasi:filesystem` | `mount-root` (string) | Filesystem access. `mount-root` sets the internal WASM root path for all host mounts (default: `/`). |
-| `wasi:sockets` | _(none yet)_ | Outbound TCP and UDP connections. |
+| Capability ID | Declaration fields | Description |
+|--------------|--------------------|-------------|
+| `wasi:filesystem` | `allow: array<{path, mode}>`, `mount-root?: string` | Filesystem access. Each `allow` entry has a required glob `path` and a required `mode` of `"ro"` or `"rw"`. `mount-root` sets the internal WASM root path for all host mounts (default: `/`). |
+| `wasi:http` | `allow: array<{host, scheme?, methods?, ports?}>` | Outbound HTTP requests. Each `allow` entry has a required `host` (exact hostname, `*.suffix` wildcard, or `*` for any host). Optional narrowers: `scheme` (`"http"` or `"https"`), `methods` (case-insensitive list), `ports` (list of u16). |
+| `wasi:sockets` | _(reserved)_ | Outbound TCP and UDP connections. Declaration format to be specified when enforcement lands. |
 
-Additional capability identifiers MAY be defined by third parties using their own namespace (e.g. `acme:gpu/compute`). Hosts that do not recognize a capability identifier SHOULD treat it according to their enforcement mode.
+**Broad-access idioms:**
+- `[std.capabilities."wasi:filesystem"].allow = [{ path = "**", mode = "rw" }]` — any path, read-write.
+- `[std.capabilities."wasi:http"].allow = [{ host = "*" }]` — any host.
+
+Additional capability identifiers MAY be defined by third parties using their own namespace (e.g. `acme:gpu/compute`). Hosts that do not recognize a capability identifier SHOULD treat it as hard-denied unless explicitly configured otherwise.
 
 ---
 
