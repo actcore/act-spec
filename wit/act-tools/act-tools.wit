@@ -1,10 +1,14 @@
-/// Tool-provider interface — the core dispatch surface every ACT
-/// component implements.
+/// Tool-provider interface — named, callable operations.
 ///
-/// This package defines the tool-call/tool-result data model and the
-/// `tool-provider` interface (list-tools, call-tool). It depends on
-/// `act:core` for the cross-cutting types (`metadata`, `error`,
-/// `localized-string`).
+/// The most common ACT surface: simple tool components (crypto, time,
+/// encoding, random, filesystem, sqlite, http-client, …) export only
+/// this interface. A component MAY export `tool-provider` together with
+/// other capability interfaces (`event-provider`, `resource-provider`,
+/// …) or in isolation; capability packages are independent and opt-in.
+///
+/// This package defines the tool data model and the `tool-provider`
+/// interface (list-tools, call-tool). It depends on `act:core` for the
+/// cross-cutting types (`cbor`, `metadata`, `error`, `localized-string`).
 ///
 /// Component-level metadata (name, version, description, capabilities)
 /// is stored in the `act:component` WASM custom section (CBOR-encoded)

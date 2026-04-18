@@ -64,19 +64,27 @@ CBOR examples use CBOR diagnostic notation (RFC 8949 §8).
 
 ### 3.1 Packages
 
-The normative protocol is split across two WIT packages:
+`act:core` carries the cross-cutting types every other ACT package
+depends on. It is the only required dependency for any ACT component.
 
-| Package | Purpose |
-|---------|---------|
-| `act:core@0.4.0` | Cross-cutting types (`localized-string`, `metadata`, `error`). Imported by every other ACT package. |
-| `act:tools@0.1.0` | The `tool-provider` interface — tool dispatch surface every component implements. |
+| Package | Status | Purpose |
+|---------|--------|---------|
+| `act:core@0.4.0` | normative | Cross-cutting types (`localized-string`, `metadata`, `error`, `cbor`). |
 
-Two further packages are informative (RFC) and not normative:
+Capability packages — independent, opt-in. A component exports any
+combination of these (or none); the host invokes whichever it sees.
 
-| Package | Status | Document |
-|---------|--------|----------|
-| `act:events@0.1.0` | RFC | [ACT-EVENTS](ACT-EVENTS.md) |
-| `act:resources@0.1.0` | RFC | [ACT-RESOURCES](ACT-RESOURCES.md) |
+| Package | Status | Purpose |
+|---------|--------|---------|
+| `act:tools@0.1.0` | normative | `tool-provider` interface — named, callable operations. The most common surface. |
+| `act:events@0.1.0` | RFC | `event-provider` interface — push notifications. See [ACT-EVENTS](ACT-EVENTS.md). |
+| `act:resources@0.1.0` | RFC | `resource-provider` interface — addressable resources. See [ACT-RESOURCES](ACT-RESOURCES.md). |
+
+In practice, simple tool components (crypto, time, encoding, random,
+filesystem, sqlite, http-client, …) export only `act:tools/tool-provider`.
+A future component might just expose a resource (e.g. a clock readable
+on demand), exporting only `act:resources/resource-provider` and no tools
+at all.
 
 ### 3.2 Component Info (Custom Section)
 
