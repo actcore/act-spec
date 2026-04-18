@@ -653,14 +653,14 @@ A conformant ACT host:
 
 The normative WIT is split across two packages:
 
-- `wit/act-core.wit` — `act:core@0.4.0` cross-cutting types
+- `wit/act-core/act-core.wit` — `act:core@0.4.0` cross-cutting types
 - `wit/act-tools/act-tools.wit` — `act:tools@0.1.0` tool-provider interface
 
 Informative (RFC) interfaces `event-provider` and `resource-provider` live in their own packages (`act:events@0.1.0` in `wit/act-events/act-events.wit`, `act:resources@0.1.0` in `wit/act-resources/act-resources.wit`) and are documented in `ACT-EVENTS.md` and `ACT-RESOURCES.md`.
 
 Component-level metadata (name, version, description, capabilities) is stored in the `act:component` WASM custom section (CBOR-encoded), not as an exported function. See Section 3.2.
 
-**`wit/act-core.wit`** — shared types:
+**`wit/act-core/act-core.wit`** — shared types:
 
 ```wit
 package act:core@0.4.0;
