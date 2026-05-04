@@ -49,6 +49,18 @@ Used in `tool-definition.metadata`.
 | `std:anti-usage-hints` | localized-string | When NOT to use this tool (for AI agents). |
 | `std:examples` | array of bstr | Example tool calls as CBOR-encoded argument maps. |
 | `std:tags` | array of string | Categorization tags. |
+| `std:session-op` | string | When set on a tool synthesized by a transport adapter, identifies it as a session lifecycle operation. Values: `"open"`, `"close"`. See `ACT-SESSIONS.md` §6.1. |
+
+### 3.1 Reserved Tool Names
+
+Tool names beginning with `_act_` are reserved for transport-adapter use. The following are currently reserved:
+
+| Name | Synthesized by | Purpose |
+|---|---|---|
+| `open_session` | MCP adapter (when component exports `act:sessions/session-provider`) | Open a new session. |
+| `close_session` | MCP adapter (when component exports `act:sessions/session-provider`) | Close a session. |
+
+Components MUST NOT define tools with these reserved names. If a host detects a collision, it SHOULD suffix the synthesized tool name (e.g. `open_session__act`) and emit a warning.
 
 ---
 
@@ -65,7 +77,7 @@ Used in `content-part.metadata` within tool result streams.
 
 ## 5. Cross-Cutting Metadata
 
-May appear on any metadata field (tool-call, list-tools-response, content-part, etc.).
+May appear on any metadata field (tool-call, list-tools-response, content-part, open-session, etc.).
 
 | Key | Value type | Description |
 |-----|-----------|-------------|
@@ -73,8 +85,18 @@ May appear on any metadata field (tool-call, list-tools-response, content-part, 
 | `std:tracestate` | string | W3C Trace Context `tracestate` header value. |
 | `std:request-id` | string | Correlation ID for logging. |
 | `std:progress-token` | string | MCP-compatible progress token. |
+| `std:agent-id` | string | Identifier of the agent making the call (informational; format implementation-defined). |
+| `std:session-id` | string | Session identifier issued by `act:sessions/session-provider`. See `ACT-SESSIONS.md`. |
 
 Transport adapters SHOULD propagate `std:traceparent` and `std:tracestate` to/from the corresponding HTTP headers or MCP request extensions.
+
+### 5.1 Reserved Keys (Future Use)
+
+The following keys are reserved for future use; their normative semantics are deferred to a future minor version. Implementations MAY use them with application-defined semantics but MUST NOT depend on cross-implementation interoperability.
+
+| Key | Value type | Description |
+|-----|-----------|-------------|
+| `std:on-behalf-of` | object (CBOR map) | User identity context for which the call is made (multi-tenant agent scenarios). See `ACT-AUTH.md` §3. |
 
 ---
 
@@ -90,16 +112,16 @@ Used for component chaining via bridge components.
 
 ## 7. Authentication Metadata
 
-Used in `tool-call.metadata` for component-to-external-service authentication.
+Used in `open-session.args` (preferred — see `ACT-SESSIONS.md` §4) for component-to-external-service authentication. Components MAY also accept these in `call-tool.metadata` for stateless ad-hoc cases (discouraged for new designs; see `ACT-AUTH.md` §1.6).
 
 | Key | Value type | Description |
 |-----|-----------|-------------|
 | `std:api-key` | string | API key for the external service. |
-| `std:bearer-token` | string | OAuth2/OIDC access token. |
+| `std:bearer-token` | string | OAuth2/OIDC access token or generic bearer-style token. |
 | `std:username` | string | Username for basic auth. |
 | `std:password` | string | Password for basic auth. |
 
-See `ACT-AUTH.md` for authentication patterns.
+See `ACT-AUTH.md` for full authentication semantics.
 
 ---
 
@@ -113,6 +135,7 @@ Used in `error.kind`.
 | `std:invalid-args` | Arguments or metadata failed schema validation. |
 | `std:timeout` | The call exceeded the declared or host-configured timeout. |
 | `std:capability-denied` | The component attempted to use a capability that was not granted. |
+| `std:session-not-found` | A capability call referenced a session-id the component does not recognize. See `ACT-SESSIONS.md` §2.3. |
 | `std:internal` | An unrecoverable error within the component. |
 
 ---

@@ -77,14 +77,17 @@ combination of these (or none); the host invokes whichever it sees.
 | Package | Status | Purpose |
 |---------|--------|---------|
 | `act:tools@0.1.0` | normative | `tool-provider` interface — named, callable operations. The most common surface. |
+| `act:sessions@0.1.0` | normative | `session-provider` interface — component-side stateful sessions. See [ACT-SESSIONS](ACT-SESSIONS.md). |
 | `act:events@0.1.0` | RFC | `event-provider` interface — push notifications. See [ACT-EVENTS](ACT-EVENTS.md). |
 | `act:resources@0.1.0` | RFC | `resource-provider` interface — addressable resources. See [ACT-RESOURCES](ACT-RESOURCES.md). |
 
 In practice, simple tool components (crypto, time, encoding, random,
 filesystem, sqlite, http-client, …) export only `act:tools/tool-provider`.
-A future component might just expose a resource (e.g. a clock readable
-on demand), exporting only `act:resources/resource-provider` and no tools
-at all.
+Components with stateful resources (database connections, REPL processes,
+bridges to MCP/OpenAPI/HTTP services) additionally export
+`act:sessions/session-provider`. A future component might just expose a
+resource (e.g. a clock readable on demand), exporting only
+`act:resources/resource-provider` and no tools at all.
 
 ### 3.2 Component Info (Custom Section)
 

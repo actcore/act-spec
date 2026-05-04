@@ -19,10 +19,11 @@ A single `.wasm` component serves AI agents (via [MCP](spec/ACT-MCP.md)), applic
 | Document | Description |
 |----------|-------------|
 | [ACT-SPEC](spec/ACT-SPEC.md) | Core protocol specification (normative) |
+| [ACT-SESSIONS](spec/ACT-SESSIONS.md) | Stateful sessions (normative) |
 | [ACT-HTTP](spec/ACT-HTTP.md) | HTTP API binding (normative) |
 | [ACT-CONSTANTS](spec/ACT-CONSTANTS.md) | Well-known `std:` constants registry (normative) |
 | [ACT-MCP](spec/ACT-MCP.md) | MCP adapter mapping guide (informative) |
-| [ACT-AUTH](spec/ACT-AUTH.md) | Authentication best practices (informative) |
+| [ACT-AUTH](spec/ACT-AUTH.md) | Authentication (normative) |
 | [ACT-AGENTSKILLS](spec/ACT-AGENTSKILLS.md) | Agent Skills embedding (normative) |
 | [OpenAPI](spec/ACT-HTTP-openapi.yaml) | OpenAPI 3.2 definition for ACT-HTTP |
 
