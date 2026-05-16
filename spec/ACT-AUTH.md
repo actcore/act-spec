@@ -132,6 +132,44 @@ Earlier ACT designs delivered credentials per call via `call-tool.metadata`. Thi
 - Components that export `session-provider` MUST NOT require credentials in `call-tool.metadata`. Credentials belong in `open-session.args`.
 - Components that do **not** export `session-provider` MAY accept credentials in `call-tool.metadata`, but SHOULD instead export `session-provider` and follow the session-of-1 pattern (Section 1.1) for any new design. Existing components in the per-call style remain valid; this section does not retroactively invalidate them.
 
+### 1.7 Operator Env-Var Transport for Session-of-1
+
+Operators configuring a single-component host process (`act run --mcp <ref>` spawned by an MCP client, `act call <ref> <tool>` in shell/CI) MAY supply session args via the `ACT_SESSION_ARGS` environment variable. The host reads the variable at startup, parses it as a JSON object, validates it against the component's `get-open-session-args-schema` response, and performs the session-of-1 auto-pin defined in Section 1.1.
+
+This is operator-facing transport convenience for the one-process-one-component shape. It is **not** an agent-facing channel; the agent never sees the env var. The session-id resulting from auto-pin is injected by the host into every forwarded `call-tool.metadata` under `std:session-id`, transparently to the agent.
+
+```bash
+export ACT_SESSION_ARGS='{"std:bearer-token":"sk-ant-..."}'
+act run ghcr.io/example/anthropic:0.1.0 --mcp
+```
+
+```jsonc
+// .mcp.json (Claude Desktop, Cursor, VS Code, …)
+{
+  "mcpServers": {
+    "anthropic": {
+      "command": "act",
+      "args": ["run", "ghcr.io/example/anthropic:0.1.0", "--mcp"],
+      "env": {
+        "ACT_SESSION_ARGS": "{\"std:bearer-token\":\"sk-ant-...\"}"
+      }
+    }
+  }
+}
+```
+
+Precedence:
+
+1. `--session-args '<json>'` CLI flag (when present).
+2. `ACT_SESSION_ARGS` env var (when present).
+3. None (the host does not auto-pin; agent-visible virtual `open_session`/`close_session` remain available per `ACT-MCP.md` §4.1).
+
+Validation is fail-fast: if `ACT_SESSION_ARGS` is malformed JSON, fails schema validation, or `open-session` returns an error, the host exits non-zero with the diagnostic on stderr **before** exposing any tools to the agent.
+
+If `ACT_SESSION_ARGS` is set but the component does NOT export `session-provider`, the host MUST fail at startup (refusing the silent-discard semantic that would let a misconfigured deployment look healthy).
+
+Multi-component broker hosts (`acts --mcp` from `act-toolserver`) are out of scope for `ACT_SESSION_ARGS`. Brokers expose multiple components behind a single MCP front-end and store per-component credentials in their own configuration plane; `ACT_SESSION_ARGS` would have no defined target component there. Broker-scoped env vars are the broker's own design space.
+
 ---
 
 ## 2. Client-to-Host Authentication
