@@ -221,20 +221,7 @@ Session lifecycle is exposed to agents via transport adapters. Adapters synthesi
 
 ### 6.1 MCP
 
-The adapter synthesizes two virtual tools in `tools/list` for components exporting session-provider:
-
-| Name | Description | inputSchema | Tool metadata |
-|---|---|---|---|
-| `open_session` | Open a new session | from `get-open-session-args-schema` | `_meta.std:session-op` = `"open"` |
-| `close_session` | Close an open session | `{type: "object", properties: {session_id: {type: "string"}}, required: ["session_id"]}` | `_meta.std:session-op` = `"close"` |
-
-The names `open_session` and `close_session` are reserved (see `ACT-CONSTANTS.md`); components MUST NOT define tools with these exact names.
-
-`tools/call open_session` invokes `open-session`; the result is returned as a single content part containing the CBOR-encoded `session` record.
-
-`tools/call close_session` invokes `close-session` and returns an empty content list.
-
-For other capability calls, the agent passes `std:session-id` via `_meta` of the MCP request; the adapter forwards it as `("std:session-id", cbor(<id>))` in the call's metadata.
+MCP transport adapter behavior — synthesis of `open_session` / `close_session` virtual tools, and the mechanism by which agents supply `std:session-id` to subsequent tool calls — is specified in `ACT-MCP.md` §4. Adapters MUST follow that document when exposing session-provider components over MCP.
 
 ### 6.2 ACT-HTTP
 

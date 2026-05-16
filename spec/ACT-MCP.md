@@ -73,8 +73,8 @@ When the MCP client calls `tools/call`:
 
 1. The adapter constructs a `tool-call`:
    - `name` — from `params.name`
-   - `arguments` — `params.arguments` converted from JSON to dCBOR bytes
-   - `metadata` — the cached metadata (merged with any per-request metadata from MCP extensions)
+   - `arguments` — `params.arguments` (with `_meta` removed per §3.2) converted from JSON to dCBOR bytes
+   - `metadata` — the cached metadata, merged with per-request metadata from two sources: (a) the `_meta` object property in `params.arguments` (the *argument metadata channel*; see §3.2), and (b) the transport-level `_meta` field on the MCP request (the *transport metadata channel*; see §3.1). Precedence rules in §3.3.
 2. The adapter calls `call-tool(call)`.
 3. The adapter receives a `tool-result` and dispatches on the variant (`immediate` or `streaming`). In both cases, it reads `tool-event`s in order. For MCP transports that do not support partial results (e.g. stdio), the adapter MUST buffer `streaming` events into a single accumulated MCP response before returning. The adapter SHOULD bound the buffer size to protect against unbounded upstream streams; see ACT-SPEC §4.3.2 for conversion guidance. See §2.3 for progress notifications as a partial-streaming workaround.
 
@@ -147,4 +147,81 @@ When the MCP client sends `notifications/cancelled` for an in-flight `tools/call
 
 1. If `call-tool` has not yet returned, the adapter triggers runtime-level cancellation (epoch/fuel) on the component instance. If `call-tool` has returned `streaming`, the adapter drops the stream handle. See ACT-SPEC §4.4.
 2. The adapter returns an MCP error response with code `-32800` (Request cancelled).
+
+---
+
+## 3. Metadata Propagation
+
+ACT calls carry a `metadata` parameter (`list<tuple<string, string>>` in WIT) used for cross-cutting concerns like `std:session-id`, `std:traceparent`, `std:locale`. Over MCP, an adapter has two channels for moving this metadata between the agent and the component, and MUST handle both.
+
+### 3.1 Transport Metadata Channel
+
+MCP's `tools/call` request envelope carries a `_meta` field at the params level. The adapter SHOULD read this field and merge its entries into the WIT `metadata` parameter of `call-tool`.
+
+In current deployment, LLM-driven MCP clients (agent harnesses such as Claude Code, Claude Desktop, Cursor) treat the transport `_meta` field as client-as-system territory and do not expose it to the model. The model therefore cannot use this channel to attach `std:session-id` or other agent-controlled keys. The argument metadata channel (§3.2) exists to fill this gap.
+
+### 3.2 Argument Metadata Channel
+
+The adapter extends the published `inputSchema` of a tool with an optional `_meta` object property whose values carry well-known `std:*` keys. The agent supplies metadata by including `_meta` in the JSON arguments of `tools/call`.
+
+Recommended injected schema fragment:
+
+```json
+{
+  "_meta": {
+    "type": "object",
+    "description": "ACT metadata. Include {\"std:session-id\": \"<id from open_session>\"} for session-bound tools. Other recognized keys: std:traceparent, std:locale.",
+    "additionalProperties": true
+  }
+}
+```
+
+The injection MUST be performed even when the component-declared schema sets `additionalProperties: false`; the adapter rewrites the schema so that `_meta` is admitted as a known property while the original restriction on other keys is preserved.
+
+On `tools/call`, the adapter:
+
+1. Removes `_meta` from `params.arguments` before validating the remaining arguments against the component's original (non-injected) schema.
+2. Flattens the removed `_meta` object into entries of the WIT `metadata` parameter of `call-tool` (one tuple per key-value pair).
+3. Merges with metadata from the transport channel (§3.1) per §3.3.
+
+Adapters MUST inject `_meta` into tools of any component exporting `act:sessions/session-provider`. Adapters MAY inject `_meta` for all tools regardless of session-provider export; the cost is one optional property in the schema, and it lets agents pass keys like `std:traceparent` end-to-end uniformly.
+
+### 3.3 Precedence and Merge
+
+When both transport `_meta` (§3.1) and argument `_meta` (§3.2) carry the same key, **transport `_meta` takes precedence**: it represents the MCP client acting as a system, whereas argument `_meta` represents the LLM agent. For keys present in only one source, that source supplies the value. The merged result, combined with adapter-cached metadata (§1.2), forms the `metadata` parameter passed to `call-tool`.
+
+---
+
+## 4. Session-Provider Adaptation
+
+When the loaded component exports `act:sessions/session-provider@0.1.0`, the adapter additionally synthesizes session lifecycle operations as virtual tools.
+
+### 4.1 Synthesized Tools
+
+| Name | Description | inputSchema | Tool metadata |
+|---|---|---|---|
+| `open_session` | Open a new session | from `get-open-session-args-schema` | `_meta.std:session-op` = `"open"` |
+| `close_session` | Close an open session | `{type: "object", properties: {session_id: {type: "string"}}, required: ["session_id"]}` | `_meta.std:session-op` = `"close"` |
+
+The names `open_session` and `close_session` are reserved (see `ACT-CONSTANTS.md` §3.1); components MUST NOT define tools with these names.
+
+`tools/call open_session` invokes `open-session`; the result is returned as a single content part containing the CBOR-encoded `session` record. The agent extracts `session.id` from the response and reuses it in subsequent calls (§4.2).
+
+`tools/call close_session` invokes `close-session(session_id)` and returns an empty content list. The `session_id` is a positional argument here because it is the *object* of the close operation, not contextual metadata.
+
+### 4.2 Session-Id Propagation
+
+For non-synthesized tools of a session-provider component, the agent supplies `std:session-id` through the argument metadata channel (§3.2):
+
+```json
+{
+  "name": "query",
+  "arguments": {
+    "sql": "SELECT 1",
+    "_meta": {"std:session-id": "sid_pg_42"}
+  }
+}
+```
+
+The adapter extracts `_meta.std:session-id`, includes it in the WIT `metadata` of `call-tool`, and the component routes the call to the matching session.
 
