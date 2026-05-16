@@ -246,6 +246,16 @@ act session close <component> <session-id>
 
 `act session open` prints the session record (id + metadata) as JSON to stdout. The session-id can be reused in subsequent `act call` invocations via `--metadata '{"std:session-id":"..."}'`.
 
+### 6.4 Session-of-1 (host pre-opened default session)
+
+A host MAY pre-open a single session at startup and serve the component as
+"session-of-1": every capability call uses that session, and the host SHOULD
+hide session lifecycle from clients (omit the MCP virtual `open_session`/`close_session`
+tools and the `/sessions*` HTTP endpoints). In this mode the host MUST force
+`std:session-id` to the pre-opened id, overriding any client-supplied value, and
+MUST close the session on shutdown per §2.5. The reference host (`act`) exposes this
+via `act run --session-args`.
+
 ---
 
 ## 7. Conformance
