@@ -2,7 +2,7 @@
 title: ACT HTTP API
 version: 0.4.0
 status: normative
-requires: [act:core@0.4.0, act:tools@0.1.0]
+requires: [act:core@0.4.0, act:tools@0.2.0]
 ---
 
 # ACT HTTP API
@@ -390,7 +390,7 @@ If the resource does not exist, the server returns `404 Not Found`.
 
 ## 5. Metadata
 
-Servers that require per-request context (API keys, endpoint URLs, user preferences) accept it via the `metadata` field in the request body. The expected shape is documented out-of-band in `act:tools@0.1.0`; a discovery mechanism is planned for a future minor version.
+Servers that require per-request context (API keys, endpoint URLs, user preferences) accept it via the `metadata` field in the request body. The expected shape is documented out-of-band in `act:tools@0.2.0`; a discovery mechanism is planned for a future minor version.
 
 ### 5.1 Metadata Delivery
 

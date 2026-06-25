@@ -2,7 +2,7 @@
 title: ACT Agent Skills Embedding
 version: 0.4.0
 status: normative
-requires: [act:core@0.4.0, act:tools@0.1.0]
+requires: [act:core@0.4.0, act:tools@0.2.0]
 ---
 
 # ACT Agent Skills Embedding

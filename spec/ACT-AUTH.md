@@ -2,7 +2,7 @@
 title: ACT Authentication
 version: 0.4.0
 status: normative
-requires: [act:core@0.4.0, act:tools@0.1.0, act:sessions@0.1.0]
+requires: [act:core@0.4.0, act:tools@0.2.0, act:sessions@0.2.0]
 ---
 
 # ACT Authentication
@@ -22,7 +22,7 @@ Credentials a component uses to authenticate with the external service it wraps 
 
 ### 1.1 Sessions as the Auth Boundary
 
-A component requiring authentication exports `act:sessions/session-provider@0.1.0` (see `ACT-SESSIONS.md`) and accepts credentials in `open-session.args`:
+A component requiring authentication exports `act:sessions/session-provider@0.2.0` (see `ACT-SESSIONS.md`) and accepts credentials in `open-session.args`:
 
 ```
 open-session(

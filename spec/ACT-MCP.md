@@ -194,7 +194,7 @@ When both transport `_meta` (§3.1) and argument `_meta` (§3.2) carry the same 
 
 ## 4. Session-Provider Adaptation
 
-When the loaded component exports `act:sessions/session-provider@0.1.0`, the adapter additionally synthesizes session lifecycle operations as virtual tools.
+When the loaded component exports `act:sessions/session-provider@0.2.0`, the adapter additionally synthesizes session lifecycle operations as virtual tools.
 
 ### 4.1 Synthesized Tools
 

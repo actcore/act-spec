@@ -2,16 +2,16 @@
 title: ACT Sessions
 version: 0.4.0
 status: normative
-requires: [act:core@0.4.0, act:sessions@0.1.0]
+requires: [act:core@0.4.0, act:sessions@0.2.0]
 ---
 
 # ACT Sessions
 
-This document specifies `act:sessions@0.1.0` — the optional WIT package providing component-side stateful sessions for ACT components.
+This document specifies `act:sessions@0.2.0` — the optional WIT package providing component-side stateful sessions for ACT components.
 
 A session is a component-side state container with an explicit lifecycle. Sessions exist for components that maintain stateful resources tied to logical units of work — database connections, MCP/OpenAPI client sessions, REPL processes, SSH connections, browser tabs, and similar. Stateless components (pure functions, simple API forwarders) do not export session-provider.
 
-`act:sessions@0.1.0` is **independent and opt-in**. A component MAY export `act:sessions/session-provider` together with `act:tools/tool-provider`, alone, or alongside other capability interfaces. Hosts MUST detect the export and adapt their lifecycle accordingly.
+`act:sessions@0.2.0` is **independent and opt-in**. A component MAY export `act:sessions/session-provider` together with `act:tools/tool-provider`, alone, or alongside other capability interfaces. Hosts MUST detect the export and adapt their lifecycle accordingly.
 
 The key words "MUST", "MUST NOT", "SHOULD", "SHOULD NOT", and "MAY" in this document are to be interpreted as described in RFC 2119.
 
@@ -22,19 +22,25 @@ The key words "MUST", "MUST NOT", "SHOULD", "SHOULD NOT", and "MAY" in this docu
 ### 1.1 Package
 
 ```wit
-package act:sessions@0.1.0;
+package act:sessions@0.2.0;
 ```
 
 ### 1.2 Interface
 
 ```wit
-interface session-provider {
-  use act:core/types@0.4.0.{metadata, error};
+/// Session data model — function-free, async-free, safe to `use` anywhere.
+interface types {
+  use act:core/types@0.4.0.{metadata};
 
   record session {
     id: string,
     metadata: metadata,
   }
+}
+
+interface session-provider {
+  use act:core/types@0.4.0.{metadata, error};
+  use types.{session};
 
   get-open-session-args-schema: async func(metadata: metadata)
     -> result<string, error>;
@@ -50,8 +56,8 @@ A component that exports session-provider declares it in its world:
 
 ```wit
 world act-world {
-  export act:tools/tool-provider@0.1.0;
-  export act:sessions/session-provider@0.1.0;
+  export act:tools/tool-provider@0.2.0;
+  export act:sessions/session-provider@0.2.0;
 }
 ```
 
@@ -262,7 +268,7 @@ via `act run --session-args`.
 
 ### 7.1 Conformant Component
 
-A component that exports `act:sessions/session-provider@0.1.0`:
+A component that exports `act:sessions/session-provider@0.2.0`:
 
 - MUST implement all three functions: `get-open-session-args-schema`, `open-session`, `close-session`.
 - MUST return a valid JSON Schema string of `type: "object"` from `get-open-session-args-schema` for any valid `metadata` input. The schema MUST describe all keys the component honors in `args`.
@@ -275,7 +281,7 @@ A component that exports `act:sessions/session-provider@0.1.0`:
 
 ### 7.2 Conformant Host
 
-A host that supports `act:sessions/session-provider@0.1.0`:
+A host that supports `act:sessions/session-provider@0.2.0`:
 
 - MUST detect the `session-provider` export and surface session lifecycle to clients (Section 6).
 - MUST validate `args` against `get-open-session-args-schema(metadata)` before calling `open-session`.
@@ -326,8 +332,8 @@ allow = [{ host = "*" }]
 
 ```wit
 world act-world {
-  export act:tools/tool-provider@0.1.0;
-  export act:sessions/session-provider@0.1.0;
+  export act:tools/tool-provider@0.2.0;
+  export act:sessions/session-provider@0.2.0;
 }
 ```
 

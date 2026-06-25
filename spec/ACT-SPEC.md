@@ -2,7 +2,7 @@
 title: ACT Protocol Specification
 version: 0.4.0
 status: normative
-requires: [act:core@0.4.0, act:tools@0.1.0]
+requires: [act:core@0.4.0, act:tools@0.2.0]
 ---
 
 # ACT: Agent Component Tools
@@ -76,8 +76,8 @@ combination of these (or none); the host invokes whichever it sees.
 
 | Package | Status | Purpose |
 |---------|--------|---------|
-| `act:tools@0.1.0` | normative | `tool-provider` interface — named, callable operations. The most common surface. |
-| `act:sessions@0.1.0` | normative | `session-provider` interface — component-side stateful sessions. See [ACT-SESSIONS](ACT-SESSIONS.md). |
+| `act:tools@0.2.0` | normative | `tool-provider` interface — named, callable operations. The most common surface. |
+| `act:sessions@0.2.0` | normative | `session-provider` interface — component-side stateful sessions. See [ACT-SESSIONS](ACT-SESSIONS.md). |
 | `act:events@0.1.0` | RFC | `event-provider` interface — push notifications. See [ACT-EVENTS](ACT-EVENTS.md). |
 | `act:resources@0.1.0` | RFC | `resource-provider` interface — addressable resources. See [ACT-RESOURCES](ACT-RESOURCES.md). |
 
@@ -181,12 +181,18 @@ interface types {
 
 ### 3.4 Tool Provider (`act:tools/tool-provider`)
 
-The dispatch surface every component implements. All tool-result types are defined inside this interface.
+The dispatch surface every component implements. The tool data model lives in a separate `types` interface, and only `tool-result` — the sole stream-bearing type — is defined in `tool-provider`.
 
 ```wit
-package act:tools@0.1.0;
+package act:tools@0.2.0;
 
-interface tool-provider {
+/// Tool data model — the records and variants exchanged by tool dispatch.
+///
+/// Contains NO functions and NO async/stream types, so it is safe to `use`
+/// from any interface (sync or async) and from any language toolchain. The
+/// `stream<>`-bearing `tool-result` is intentionally NOT here — it lives in
+/// `tool-provider`, because only the async provider produces it.
+interface types {
   use act:core/types@0.4.0.{localized-string, metadata, error};
 
   /// Full definition of a tool, returned by list-tools.
@@ -223,25 +229,35 @@ interface tool-provider {
     error(error),
   }
 
+  /// Response from list-tools.
+  record list-tools-response {
+    metadata: metadata,
+    tools: list<tool-definition>,
+  }
+}
+
+interface tool-provider {
+  use act:core/types@0.4.0.{cbor, metadata, error};
+  // Only the types referenced directly here are `use`d; `tool-definition` and
+  // `content-part` arrive transitively (inside `list-tools-response` and
+  // `tool-event` respectively) and need no explicit alias.
+  use types.{tool-event, list-tools-response};
+
   /// The result of a tool call.
   ///
   /// Two shapes exist to accommodate different guest capabilities; they are
   /// semantically equivalent. Both carry an ordered sequence of `tool-event`s
   /// with identical terminal-error semantics. Hosts, intermediaries, and callers
   /// MUST treat both variants as equivalent event sequences. Intermediaries MAY
-  /// freely convert between variants.
+  /// freely convert between variants. This is the only type in `act:tools` that
+  /// carries a `stream<>`; it lives here rather than in `types` precisely so the
+  /// data model stays sync/stream-free and broadly `use`-able.
   ///
   /// - `immediate` — event list is materialized when the tool returns.
   /// - `streaming` — events are emitted to a stream as they are produced.
   variant tool-result {
     immediate(list<tool-event>),
     streaming(stream<tool-event>),
-  }
-
-  /// Response from list-tools.
-  record list-tools-response {
-    metadata: metadata,
-    tools: list<tool-definition>,
   }
 
   /// Returns the list of tools available for the given metadata.
@@ -261,7 +277,7 @@ interface tool-provider {
 
 ```wit
 world act-world {
-  export act:tools/tool-provider@0.1.0;
+  export act:tools/tool-provider@0.2.0;
 }
 ```
 
@@ -595,7 +611,7 @@ Breaking changes to the WIT interfaces are handled through WIT package versionin
 
 ```
 act:core@0.1.0  ->  ...  ->  act:core@0.1.6  ->  act:core@0.2.0  ->  act:core@0.3.0  ->  act:core@0.4.0
-                                                                                  ->  act:tools@0.1.0
+                                                                                  ->  act:tools@0.2.0
 ```
 
 A host MAY support multiple interface versions simultaneously. A component declares which version it implements through its WIT world.
@@ -657,7 +673,7 @@ A conformant ACT host:
 The normative WIT is split across two packages:
 
 - `wit/act-core/act-core.wit` — `act:core@0.4.0` cross-cutting types
-- `wit/act-tools/act-tools.wit` — `act:tools@0.1.0` tool-provider interface
+- `wit/act-tools/act-tools.wit` — `act:tools@0.2.0` tool-provider interface
 
 Informative (RFC) interfaces `event-provider` and `resource-provider` live in their own packages (`act:events@0.1.0` in `wit/act-events/act-events.wit`, `act:resources@0.1.0` in `wit/act-resources/act-resources.wit`) and are documented in `ACT-EVENTS.md` and `ACT-RESOURCES.md`.
 
@@ -701,9 +717,13 @@ interface types {
 **`wit/act-tools/act-tools.wit`** — tool-provider:
 
 ```wit
-package act:tools@0.1.0;
+package act:tools@0.2.0;
 
-interface tool-provider {
+/// Tool data model — the records and variants exchanged by tool dispatch.
+/// Contains NO functions and NO async/stream types, so it is safe to `use`
+/// from any interface (sync or async). The `stream<>`-bearing `tool-result`
+/// is intentionally NOT here — it lives in `tool-provider`.
+interface types {
   use act:core/types@0.4.0.{localized-string, metadata, error};
 
   /// Full definition of a tool, returned by list-tools.
@@ -727,16 +747,22 @@ interface tool-provider {
     error(error),
   }
 
-  /// The result of a tool call.
-  variant tool-result {
-    immediate(list<tool-event>),
-    streaming(stream<tool-event>),
-  }
-
   /// Response from list-tools.
   record list-tools-response {
     metadata: metadata,
     tools: list<tool-definition>,
+  }
+}
+
+interface tool-provider {
+  use act:core/types@0.4.0.{cbor, metadata, error};
+  use types.{tool-event, list-tools-response};
+
+  /// The result of a tool call. The only `stream<>`-bearing type in
+  /// `act:tools`; kept here so the `types` data model stays stream-free.
+  variant tool-result {
+    immediate(list<tool-event>),
+    streaming(stream<tool-event>),
   }
 
   list-tools: async func(metadata: metadata) -> result<list-tools-response, error>;
@@ -783,7 +809,7 @@ The host encodes arguments as dCBOR bytes before passing to the component.
 
 ### B.2 Bridge Component (with metadata)
 
-An OpenAPI bridge — accepts metadata describing the upstream service. The shape of accepted metadata is documented out-of-band in `act:tools@0.1.0`; a discovery mechanism is planned for a future minor version.
+An OpenAPI bridge — accepts metadata describing the upstream service. The shape of accepted metadata is documented out-of-band in `act:tools@0.2.0`; a discovery mechanism is planned for a future minor version.
 
 ```
 list-tools([("act:spec-url", cbor("https://api.example.com/openapi.json"))])
