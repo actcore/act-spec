@@ -1,0 +1,6 @@
+# Registry mapping for ACT WIT packages. `wkg` resolves the `act` namespace to
+# the actcore.dev wasm-pkg registry (OCI backend ghcr.io/actcore). The act:*
+# packages are public, so reads (wit fetch / oci pull) need no credentials;
+# publishing needs a ghcr.io login (see .github/workflows/publish-wit.yml).
+[namespace_registries]
+act = "actcore.dev"
