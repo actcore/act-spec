@@ -10,6 +10,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WIT="$ROOT/wit"
 CFG="$ROOT/wkg-registry.toml"
+# Make the `act` namespace registry available to EVERY wkg call (build + publish).
+# `wkg wit build` resolves the package's namespace against this even with deps
+# staged locally; without it a clean env (CI) fails: "no registry configured for
+# namespace act".
+export WKG_CONFIG_FILE="$CFG"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 PUBLISH="${PUBLISH:-1}"
@@ -43,7 +48,7 @@ for pkg in "${ORDER[@]}"; do
   wkg wit build -d "$stage" -o "$WORK/$pkg.wasm"
   if [ "$PUBLISH" = "1" ]; then
     echo "publish $id -> $ref"
-    WKG_CONFIG_FILE="$CFG" wkg publish "$WORK/$pkg.wasm"
+    wkg publish "$WORK/$pkg.wasm"
   fi
 done
 echo "all done"
