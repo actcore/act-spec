@@ -27,7 +27,7 @@ declare -A DEPS=(
 # dependency order: every dir appears AFTER the dirs it depends on
 ORDER=(act-core act-tools act-sessions act-events act-resources act-tools-sync act-sessions-sync)
 
-pkg_id() { grep -ohE '^package [a-z0-9:_-]+@[0-9.]+' "$WIT/$1"/*.wit | head -1 | sed 's/^package //'; }
+pkg_id() { grep -m1 -ohE '^package [a-z0-9:_-]+@[0-9.]+' "$WIT/$1"/*.wit | sed 's/^package //'; }
 oci_ref() { local id="$1" ns name ver; ns="${id%%:*}"; id="${id#*:}"; name="${id%@*}"; ver="${id#*@}"; echo "ghcr.io/actcore/$ns/$name:$ver"; }
 
 for pkg in "${ORDER[@]}"; do
