@@ -1,0 +1,33 @@
+/// Sync, no-stream mirror of `act:tools/tool-provider@0.2.0`.
+///
+/// COMPATIBILITY-tier package (see spec/ACT-SYNC.md). It exists so that
+/// constrained-language wit-bindgen backends (cpp, csharp, go, …) — which
+/// panic on `stream<>` inside a variant and emit no glue for `async func` —
+/// can still author a conformant ACT component. They implement THIS sync
+/// interface; the official `act:shim-tools-sync` adapter then exports the
+/// canonical async `act:tools/tool-provider@0.2.0` and forwards every call
+/// into this one, composed with `wac plug`.
+///
+/// The canonical async `act:tools` WIT is NOT modified; this is a sibling
+/// package. Hosts are NOT required to implement it: a component authored
+/// against it MUST be composed to async before it is conformant.
+///
+/// Because `act:tools@0.2.0` extracted its data model into a function-free,
+/// stream-free `types` interface, this mirror `use`s the SAME records/variants
+/// as the async provider — so the shim forwards with NO type conversion.
+package act:tools-sync@0.1.0;
+
+interface tool-provider-sync {
+  use act:core/types@0.4.0.{cbor, metadata, error};
+  // Reuse the canonical data model. Only names referenced DIRECTLY below are
+  // `use`d; `tool-definition` and `content-part` arrive transitively.
+  use act:tools/types@0.2.0.{tool-event, list-tools-response};
+
+  /// Sync mirror of `act:tools/tool-provider.list-tools`. No `async`.
+  list-tools: func(metadata: metadata) -> result<list-tools-response, error>;
+
+  /// Sync mirror of `act:tools/tool-provider.call-tool`. Returns the full
+  /// event list directly (the `immediate` shape) — no `tool-result`, no
+  /// `stream<>`. The shim wraps this as `tool-result::immediate(events)`.
+  call-tool: func(name: string, arguments: cbor, metadata: metadata) -> list<tool-event>;
+}

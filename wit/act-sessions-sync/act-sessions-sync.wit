@@ -1,0 +1,28 @@
+/// Sync mirror of `act:sessions/session-provider@0.2.0`.
+///
+/// COMPATIBILITY-tier package (see spec/ACT-SYNC.md). Like `act:tools-sync`,
+/// it lets constrained-language backends author a stateful ACT component by
+/// implementing this sync interface; the official `act:shim-sessions-sync`
+/// adapter exports the canonical async `act:sessions/session-provider@0.2.0`
+/// and forwards (async→sync) into it, composed with `wac plug`.
+///
+/// The canonical async `act:sessions` WIT is NOT modified; this is a sibling
+/// package. Hosts are NOT required to implement it. Because `act:sessions@0.2.0`
+/// extracted the `session` record into a function-free `types` interface, this
+/// mirror reuses it directly — the shim forwards with NO type conversion.
+package act:sessions-sync@0.1.0;
+
+interface session-provider-sync {
+  use act:core/types@0.4.0.{metadata, error};
+  use act:sessions/types@0.2.0.{session};
+
+  /// Sync mirror of `get-open-session-args-schema`. No `async`.
+  get-open-session-args-schema: func(metadata: metadata) -> result<string, error>;
+
+  /// Sync mirror of `open-session`. No `async`.
+  open-session: func(args: metadata, metadata: metadata) -> result<session, error>;
+
+  /// Sync mirror of `close-session`. Best-effort; already sync in the
+  /// canonical interface — mirrored verbatim.
+  close-session: func(session-id: string);
+}
