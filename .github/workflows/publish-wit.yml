@@ -1,0 +1,19 @@
+name: publish-wit
+on:
+  push:
+    tags: ['wit-v*']
+permissions:
+  contents: read
+  packages: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install wkg
+        run: cargo install wkg --version 0.15.1 --locked
+      - name: Log in to ghcr.io
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Publish all act:* WIT packages
+        run: bash scripts/publish-wit.sh
