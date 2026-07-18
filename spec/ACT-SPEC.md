@@ -103,9 +103,11 @@ The custom section contains a CBOR-encoded map of namespaced tables. Well-known 
 | `version` | tstr | MUST | SemVer version string. |
 | `description` | tstr or map | MAY | Localized description. Plain string or `{"en": "...", "ru": "..."}` map. |
 | `default-language` | tstr | MAY | BCP 47 language tag for the component's default language. If absent, `plain` strings have no declared language. |
+| `author` | tstr | MAY | Component author. Populated by `act-build` from the language manifest: Cargo.toml `[package].authors` (first entry), pyproject `[project].authors[].name` (first entry), or package.json `author` (string, or object `name`). A single string in v1. |
+| `license` | tstr | MAY | SPDX license expression. Populated by `act-build` from the language manifest: Cargo.toml `[package].license`, pyproject `[project].license` (string, or `{text = "..."}` table), or package.json `license`. |
 | `capabilities` | map | MAY | Map of capability declarations keyed by capability identifier. Presence of a key declares that the component uses this capability. The value is an object with capability-specific parameters (may be empty). See Section 7. |
 
-Custom namespaces follow the same convention. Hosts and tooling MUST ignore unrecognized namespaces and keys.
+Custom namespaces follow the same convention. Hosts and tooling MUST ignore unrecognized namespaces and keys. The keys above are all OPTIONAL except `name` and `version`; components predating a key omit it, and hosts treat an absent optional key as unset.
 
 Components SHOULD also set standard WASM metadata fields `name` and `version` (via `wasm-tools metadata add` or equivalent) for compatibility with WASM registries and tooling.
 
@@ -118,6 +120,8 @@ Components SHOULD also set standard WASM metadata fields `name` and `version` (v
     "version": "1.2.0",
     "description": "Weather data tools",
     "default-language": "en",
+    "author": "Ada Lovelace <ada@example.com>",
+    "license": "Apache-2.0",
     "capabilities": {
       "wasi:http": {}
     }
@@ -133,6 +137,8 @@ name = "weather-tools"
 version = "1.2.0"
 description = "Weather data tools"
 default-language = "en"
+author = "Ada Lovelace <ada@example.com>"
+license = "Apache-2.0"
 
 [std.capabilities."wasi:http"]
 ```
