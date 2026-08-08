@@ -23,6 +23,8 @@ MCP `_meta` key names do not admit `:`, so the `std:` namespace is respelled as 
 - Keys in third-party namespaces cross verbatim; respelling them would mint keys in a namespace ACT does not own.
 - It does **not** apply to the argument metadata channel (ACT-MCP §3.2), which is an ordinary JSON property inside `params.arguments` and keeps `std:` spellings.
 
+Third-party constants conventionally use the same `:` convention as `std:` (e.g. `acme:priority`), so a third-party key that keeps it is not itself a conformant MCP `_meta` name. ACT passes it through unchanged regardless: rewriting it would mint keys in a namespace ACT does not own, which is the worse failure. A vendor whose metadata needs to cross the MCP boundary conformantly SHOULD register its own reverse-DNS prefix and use that instead of a `:`-separated namespace.
+
 See ACT-MCP §3.1 and §3.2.
 
 ---

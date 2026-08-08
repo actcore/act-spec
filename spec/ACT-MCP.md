@@ -122,7 +122,7 @@ If the event sequence contains a `tool-event::error(error)`, the adapter returns
   "isError": true,
   "_meta": {
     "dev.actcore/error-kind": "<error.kind, verbatim>",
-    "dev.actcore/error-metadata": { }
+    "dev.actcore/error-metadata": { <mapped error.metadata entries> }
   }
 }
 ```
@@ -135,7 +135,7 @@ For an early failure returned as a JSON-RPC error response, the same two keys ri
   "message": "<error.message>",
   "data": {
     "dev.actcore/error-kind": "<error.kind, verbatim>",
-    "dev.actcore/error-metadata": { }
+    "dev.actcore/error-metadata": { <mapped error.metadata entries> }
   }
 }
 ```
@@ -153,7 +153,7 @@ For an early failure returned as a JSON-RPC error response, the same two keys ri
 | `std:internal` | `-32603` Internal error |
 | anything else | `-32603` Internal error |
 
-Earlier revisions of this document recommended `-32001` for `std:timeout` and `std:capability-denied`. MCP `2026-07-28` retired `-32000`–`-32019` as legacy ("new implementations SHOULD NOT use codes from that sub-range at all"), so adapters MUST NOT emit it. Codes are deliberately coarse: the precise kind travels in `_meta` / `data`, which removes any need to mint new numeric codes.
+Earlier revisions of this document recommended `-32001` for `std:timeout` and `std:capability-denied`. MCP `2026-07-28` retired `-32000`–`-32019` as legacy ("new implementations SHOULD NOT use codes from this sub-range at all"), so adapters MUST NOT emit it. Codes are deliberately coarse: the precise kind travels in `_meta` / `data`, which removes any need to mint new numeric codes.
 
 The adapter should prefer MCP tool result with `isError: true` for tool-level errors and JSON-RPC error responses only for protocol-level failures.
 
@@ -194,6 +194,8 @@ MCP's `tools/call` request envelope carries a `_meta` field at the params level.
 In current deployment, LLM-driven MCP clients (agent harnesses such as Claude Code, Claude Desktop, Cursor) treat the transport `_meta` field as client-as-system territory and do not expose it to the model. The model therefore cannot use this channel to attach `std:session-id` or other agent-controlled keys. The argument metadata channel (§3.2) exists to fill this gap.
 
 **Key respelling.** MCP `_meta` key names admit only alphanumerics, `-`, `_` and `.` in the name segment, so ACT's `:` separator is illegal there. An adapter MUST respell the `std:` namespace as the reverse-DNS prefix `dev.actcore/` in both directions — `std:session-id` ⟷ `dev.actcore/session-id` — and MUST pass keys in every other namespace through verbatim. The transform applies to keys only; values, including `error.kind`, are never rewritten.
+
+Third-party namespaces conventionally use the same `:` convention (`acme:priority`), so a passed-through third-party key is not itself a conformant MCP `_meta` name. An adapter emits it unchanged regardless — respelling a namespace ACT does not own would be the worse failure. A vendor whose metadata needs to cross the MCP boundary conformantly SHOULD register its own reverse-DNS prefix and use that instead of a `:`-separated namespace.
 
 For compatibility, an adapter MUST continue to accept the legacy inbound spelling `std:session-id`, and MUST prefer the conformant spelling when a client sends both. The legacy spelling is **deprecated**; adapters MUST emit only the conformant form. Its removal is a breaking change reserved for a future revision.
 
