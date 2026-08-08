@@ -1,0 +1,15 @@
+# wkg workspace root for the act:* WIT packages.
+#
+# Every directory under `wit/` is one package. `wkg publish --workspace`
+# (wkg >= 0.16) builds them in dependency order, resolving the act:* references
+# between members against a temporary local registry, so members do NOT need
+# their sibling packages staged into a `deps/` directory.
+#
+# Registry mapping for the `act` namespace lives in `wkg-registry.toml`
+# (pass it via WKG_CONFIG_FILE; workspace-level registry config is not
+# auto-discovered yet).
+#
+# Rehearse locally:
+#   WKG_CONFIG_FILE=$PWD/wkg-registry.toml wkg publish --workspace --dry-run --skip-dupes
+[workspace]
+members = ["wit/*"]
