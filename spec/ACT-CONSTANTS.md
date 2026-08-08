@@ -17,6 +17,14 @@ When adding a new `std:` constant, it MUST be registered here first.
 
 Well-known constants use the `std:` prefix. Third-party constants use their own namespace (e.g. `acme:priority`). Hosts and components MUST ignore unrecognized constants.
 
+MCP `_meta` key names do not admit `:`, so the `std:` namespace is respelled as the reverse-DNS prefix `dev.actcore/` when a metadata key crosses into **MCP's `_meta` field**: `std:session-id` becomes `dev.actcore/session-id`. Three limits on that rule:
+
+- It applies to **keys only**. An error kind, being a value, keeps its `std:` form wherever it appears.
+- Keys in third-party namespaces cross verbatim; respelling them would mint keys in a namespace ACT does not own.
+- It does **not** apply to the argument metadata channel (ACT-MCP §3.2), which is an ordinary JSON property inside `params.arguments` and keeps `std:` spellings.
+
+See ACT-MCP §3.1 and §3.2.
+
 ---
 
 ## 2. Component Info Keys

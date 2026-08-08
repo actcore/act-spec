@@ -101,6 +101,17 @@ The adapter collects all `tool-event::content(part)` events and maps them to the
 | `application/json` | `{ "type": "text", "text": "<data as UTF-8>" }` |
 | absent or other | `{ "type": "text", "text": "<data as base64>" }` (fallback) |
 
+Every block carries the part's remaining fidelity in its own `_meta`, keys mapped per §3.1:
+
+- `dev.actcore/mime-type` — the part's `mime-type`, on blocks whose MCP type does not carry it natively (i.e. text blocks; image blocks already publish `mimeType`).
+- every entry of `content-part.metadata`.
+
+`dev.actcore/mime-type` is written before the metadata entries, so a part carrying a `std:mime-type` metadata key overwrites it. This grants a component nothing it does not already have — it controls `content-part.mime-type` directly — but implementations MUST NOT rely on `dev.actcore/mime-type` as an authenticated statement about the payload. `std:mime-type` is not a registered metadata key and SHOULD NOT be used.
+
+The `_meta` object is omitted entirely when a part has neither.
+
+When the result contains **exactly one** content part, whose mime-type is `application/cbor`, `application/json` or `application/*+json`, and whose decoded value is a JSON **object**, the adapter MUST also populate `structuredContent` with that value, while still emitting the text block. Multi-part results, arrays and scalars MUST NOT populate `structuredContent`: `tool-definition` declares no output schema, so no shape is described to the client.
+
 **Result mapping (error):**
 
 If the event sequence contains a `tool-event::error(error)`, the adapter returns an MCP error response with `isError: true`. Any content-parts received before the error are included in the response, followed by the error content.
@@ -108,19 +119,41 @@ If the event sequence contains a `tool-event::error(error)`, the adapter returns
 ```json
 {
   "content": [{ "type": "text", "text": "<error.message>" }],
-  "isError": true
+  "isError": true,
+  "_meta": {
+    "dev.actcore/error-kind": "<error.kind, verbatim>",
+    "dev.actcore/error-metadata": { }
+  }
 }
 ```
 
-**Recommended error kind to MCP error code mapping:**
+For an early failure returned as a JSON-RPC error response, the same two keys ride in the free-form `data` member:
 
-| ACT `error.kind` | MCP JSON-RPC error code |
+```json
+{
+  "code": -32603,
+  "message": "<error.message>",
+  "data": {
+    "dev.actcore/error-kind": "<error.kind, verbatim>",
+    "dev.actcore/error-metadata": { }
+  }
+}
+```
+
+`dev.actcore/error-metadata` is emitted only when `error.metadata` is non-empty. A client therefore reads one key, `dev.actcore/error-kind`, whichever path produced the failure.
+
+**Error kind to MCP error code mapping:**
+
+| ACT `error.kind` | JSON-RPC code |
 |---|---|
-| `std:not-found` | `-32601` (Method not found) |
-| `std:invalid-args` | `-32602` (Invalid params) |
-| `std:timeout` | `-32001` (Server error) |
-| `std:capability-denied` | `-32001` (Server error) |
-| `std:internal` | `-32603` (Internal error) |
+| `std:invalid-args` | `-32602` Invalid params |
+| `std:not-found` | `-32601` Method not found |
+| `std:capability-denied` | `-32600` Invalid request |
+| `std:timeout` | `-32603` Internal error |
+| `std:internal` | `-32603` Internal error |
+| anything else | `-32603` Internal error |
+
+Earlier revisions of this document recommended `-32001` for `std:timeout` and `std:capability-denied`. MCP `2026-07-28` retired `-32000`–`-32019` as legacy ("new implementations SHOULD NOT use codes from that sub-range at all"), so adapters MUST NOT emit it. Codes are deliberately coarse: the precise kind travels in `_meta` / `data`, which removes any need to mint new numeric codes.
 
 The adapter should prefer MCP tool result with `isError: true` for tool-level errors and JSON-RPC error responses only for protocol-level failures.
 
@@ -160,6 +193,10 @@ MCP's `tools/call` request envelope carries a `_meta` field at the params level.
 
 In current deployment, LLM-driven MCP clients (agent harnesses such as Claude Code, Claude Desktop, Cursor) treat the transport `_meta` field as client-as-system territory and do not expose it to the model. The model therefore cannot use this channel to attach `std:session-id` or other agent-controlled keys. The argument metadata channel (§3.2) exists to fill this gap.
 
+**Key respelling.** MCP `_meta` key names admit only alphanumerics, `-`, `_` and `.` in the name segment, so ACT's `:` separator is illegal there. An adapter MUST respell the `std:` namespace as the reverse-DNS prefix `dev.actcore/` in both directions — `std:session-id` ⟷ `dev.actcore/session-id` — and MUST pass keys in every other namespace through verbatim. The transform applies to keys only; values, including `error.kind`, are never rewritten.
+
+For compatibility, an adapter MUST continue to accept the legacy inbound spelling `std:session-id`, and MUST prefer the conformant spelling when a client sends both. The legacy spelling is **deprecated**; adapters MUST emit only the conformant form. Its removal is a breaking change reserved for a future revision.
+
 ### 3.2 Argument Metadata Channel
 
 The adapter extends the published `inputSchema` of a tool with an optional `_meta` object property whose values carry well-known `std:*` keys. The agent supplies metadata by including `_meta` in the JSON arguments of `tools/call`.
@@ -176,6 +213,10 @@ Recommended injected schema fragment:
 }
 ```
 
+**No respelling here.** This channel is a `_meta` *object property inside `params.arguments`* — ordinary JSON that the adapter pops before validating the remaining arguments — not MCP's `_meta` field. MCP `_meta` key-name rules therefore do not govern it, and its keys keep their `std:` spelling: `{"std:session-id": "..."}`, never `dev.actcore/session-id`. The §3.1 respelling applies to the transport channel alone.
+
+This is deliberate rather than an oversight. LLM-driven clients treat transport `_meta` as client-as-system territory and do not expose it to the model, so the argument channel is the only one an agent can actually write. Respelling it would break that channel for no conformance gain, since its keys were never subject to the rule.
+
 The injection MUST be performed even when the component-declared schema sets `additionalProperties: false`; the adapter rewrites the schema so that `_meta` is admitted as a known property while the original restriction on other keys is preserved.
 
 On `tools/call`, the adapter:
@@ -189,6 +230,8 @@ Adapters MUST inject `_meta` into tools of any component exporting `act:sessions
 ### 3.3 Precedence and Merge
 
 When both transport `_meta` (§3.1) and argument `_meta` (§3.2) carry the same key, **transport `_meta` takes precedence**: it represents the MCP client acting as a system, whereas argument `_meta` represents the LLM agent. For keys present in only one source, that source supplies the value. The merged result, combined with adapter-cached metadata (§1.2), forms the `metadata` parameter passed to `call-tool`.
+
+Because the two channels spell the same logical key differently (§3.1 vs §3.2), the comparison happens on the **ACT-side key, after normalization**. An adapter MUST map inbound transport keys out of the `dev.actcore/` prefix *before* merging, so that a transport `dev.actcore/session-id` and an argument `std:session-id` are recognised as the same key and the transport value wins. An adapter that merged first and normalized afterwards would silently deliver both spellings to the component.
 
 ---
 
