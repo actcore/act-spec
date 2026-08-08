@@ -106,11 +106,11 @@ Every block carries the part's remaining fidelity in its own `_meta`, keys mappe
 - `dev.actcore/mime-type` — the part's `mime-type`, on blocks whose MCP type does not carry it natively (i.e. text blocks; image blocks already publish `mimeType`).
 - every entry of `content-part.metadata`.
 
-`dev.actcore/mime-type` is written before the metadata entries, so a part carrying a `std:mime-type` metadata key overwrites it. This grants a component nothing it does not already have — it controls `content-part.mime-type` directly — but implementations MUST NOT rely on `dev.actcore/mime-type` as an authenticated statement about the payload. `std:mime-type` is not a registered metadata key and SHOULD NOT be used.
+`dev.actcore/mime-type` always equals `content-part.mime-type` — a component-supplied `std:mime-type` metadata entry cannot override it. `std:mime-type` is not a registered metadata key and SHOULD NOT be used. Implementations MUST NOT treat `dev.actcore/mime-type` as an authenticated statement about the payload: nothing on the ACT side inspects the bytes to confirm the component's claim.
 
 The `_meta` object is omitted entirely when a part has neither.
 
-When the result contains **exactly one** content part, whose mime-type is `application/cbor`, `application/json` or `application/*+json`, and whose decoded value is a JSON **object**, the adapter MUST also populate `structuredContent` with that value, while still emitting the text block. Multi-part results, arrays and scalars MUST NOT populate `structuredContent`: `tool-definition` declares no output schema, so no shape is described to the client.
+When the successful result contains **exactly one** content part, whose mime-type is `application/cbor`, `application/json` or `application/*+json`, and whose decoded value is a JSON **object**, the adapter MUST also populate `structuredContent` with that value, while still emitting the text block. Multi-part results, arrays and scalars MUST NOT populate `structuredContent`: `tool-definition` declares no output schema, so no shape is described to the client.
 
 **Result mapping (error):**
 
@@ -140,7 +140,7 @@ For an early failure returned as a JSON-RPC error response, the same two keys ri
 }
 ```
 
-`dev.actcore/error-metadata` is emitted only when `error.metadata` is non-empty. A client therefore reads one key, `dev.actcore/error-kind`, whichever path produced the failure.
+`dev.actcore/error-metadata` is emitted only when `error.metadata` is non-empty. For a *tool-invocation* failure — an ACT `error` surfaced either as `isError: true` or as the early-failure JSON-RPC response above — a client reads one key, `dev.actcore/error-kind`, regardless of which of the two paths produced it. Other JSON-RPC error responses the adapter may return (malformed requests, transport-level failures unrelated to a tool call) are not guaranteed to carry `data` at all.
 
 **Error kind to MCP error code mapping:**
 
@@ -245,8 +245,8 @@ When the loaded component exports `act:sessions/session-provider@0.2.0`, the ada
 
 | Name | Description | inputSchema | Tool metadata |
 |---|---|---|---|
-| `open_session` | Open a new session | from `get-open-session-args-schema` | `_meta.std:session-op` = `"open"` |
-| `close_session` | Close an open session | `{type: "object", properties: {session_id: {type: "string"}}, required: ["session_id"]}` | `_meta.std:session-op` = `"close"` |
+| `open_session` | Open a new session | from `get-open-session-args-schema` | `_meta.dev.actcore/session-op` = `"open"` |
+| `close_session` | Close an open session | `{type: "object", properties: {session_id: {type: "string"}}, required: ["session_id"]}` | `_meta.dev.actcore/session-op` = `"close"` |
 
 The names `open_session` and `close_session` are reserved (see `ACT-CONSTANTS.md` §3.1); components MUST NOT define tools with these names.
 

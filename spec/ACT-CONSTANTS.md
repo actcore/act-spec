@@ -59,7 +59,7 @@ Used in `tool-definition.metadata`.
 | `std:anti-usage-hints` | localized-string | When NOT to use this tool (for AI agents). |
 | `std:examples` | array of bstr | Example tool calls as CBOR-encoded argument maps. |
 | `std:tags` | array of string | Categorization tags. |
-| `std:session-op` | string | When set on a tool synthesized by a transport adapter, identifies it as a session lifecycle operation. Values: `"open"`, `"close"`. See `ACT-SESSIONS.md` §6.1. |
+| `std:session-op` | string | When set on a tool synthesized by a transport adapter, identifies it as a session lifecycle operation. Values: `"open"`, `"close"`. See `ACT-SESSIONS.md` §6.1. Over MCP, the key itself is respelled `dev.actcore/session-op` per `ACT-MCP.md` §3.1/§4.1 — `:` is not a legal MCP `_meta` name character. |
 
 ### 3.1 Reserved Tool Names
 
