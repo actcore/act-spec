@@ -1,11 +1,25 @@
 ---
 title: ACT HTTP API
 version: 0.4.0
-status: normative
+status: withdrawn
+withdrawn: 2026-08-13
 requires: [act:core@0.4.0, act:tools@0.2.0]
 ---
 
 # ACT HTTP API
+
+> **Withdrawn on 2026-08-13.** This binding is no longer part of ACT and the
+> reference host no longer implements it: `act` removed the REST server in
+> 0.12.0, and `--http` now serves MCP over Streamable HTTP rather than this
+> API. The document is kept, rather than deleted, so that existing references
+> to it resolve and so the design record stays intact.
+>
+> **What replaces it.** MCP is ACT's transport: `act run --mcp` for stdio and
+> `act run --mcp --http` for Streamable HTTP at `/mcp`. See
+> [ACT-MCP.md](ACT-MCP.md). Session lifecycle, previously the `/sessions`
+> endpoints here, is covered by [ACT-SESSIONS.md](ACT-SESSIONS.md) §6.1.
+>
+> Nothing below this notice is normative any longer.
 
 A stateless HTTP API for discovering and invoking tools. Any HTTP server that conforms to this specification is a valid implementation — no WebAssembly runtime or specific programming language is required.
 

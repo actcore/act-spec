@@ -231,6 +231,10 @@ MCP transport adapter behavior — synthesis of `open_session` / `close_session`
 
 ### 6.2 ACT-HTTP
 
+> **Withdrawn.** This section describes the ACT-HTTP binding, withdrawn on
+> 2026-08-13 and no longer implemented by the reference host. Retained as
+> design record; see [ACT-HTTP.md](ACT-HTTP.md). Not normative.
+
 Sessions are exposed as REST endpoints, following the `POST`/`QUERY` duality used elsewhere in ACT-HTTP:
 
 | Method | Path | Description |

@@ -1,7 +1,12 @@
 openapi: 3.2.0
 info:
-  title: ACT HTTP API
+  title: ACT HTTP API (withdrawn)
   version: 0.4.0
+  description: >-
+    WITHDRAWN 2026-08-13. This API is no longer part of ACT and the reference
+    host no longer implements it; `act` removed the REST server in 0.12.0.
+    Retained so existing references resolve. MCP is the transport: see
+    ACT-MCP.md. Not normative.
   description: |
     A stateless HTTP API for discovering and invoking tools.
     Any HTTP server that conforms to this specification is a valid implementation.

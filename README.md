@@ -2,11 +2,11 @@
 
 A self-documenting RPC protocol for AI agent tools, built on the [WebAssembly Component Model](https://component-model.bytecodealliance.org/).
 
-A single `.wasm` component serves AI agents (via [MCP](spec/ACT-MCP.md)), application developers (via [HTTP+JSON/CBOR](spec/ACT-HTTP.md)), CLI users, and browsers — with hardware-enforced sandboxing by default.
+A single `.wasm` component serves AI agents (via [MCP](spec/ACT-MCP.md), over stdio or Streamable HTTP), CLI users, and browsers — with hardware-enforced sandboxing by default.
 
 ## Why ACT
 
-**Universal tools, not framework-locked plugins.** Write a tool once as a Wasm component. Run it from Claude, GPT, Gemini, your own orchestrator, a REST client, or the command line. The host adapts the transport — the component doesn't change.
+**Universal tools, not framework-locked plugins.** Write a tool once as a Wasm component. Run it from Claude, GPT, Gemini, your own orchestrator, or the command line. The host adapts the transport — the component doesn't change.
 
 **Secure by construction.** Components run in WebAssembly's capability-based sandbox. No filesystem, network, or system access unless the operator explicitly grants it. This isn't a policy layer that can be bypassed — it's enforced by the runtime.
 
@@ -20,13 +20,13 @@ A single `.wasm` component serves AI agents (via [MCP](spec/ACT-MCP.md)), applic
 |----------|-------------|
 | [ACT-SPEC](spec/ACT-SPEC.md) | Core protocol specification (normative) |
 | [ACT-SESSIONS](spec/ACT-SESSIONS.md) | Stateful sessions (normative) |
-| [ACT-HTTP](spec/ACT-HTTP.md) | HTTP API binding (normative) |
+| [ACT-HTTP](spec/ACT-HTTP.md) | HTTP API binding (**withdrawn** 2026-08-13 — MCP is the transport) |
 | [ACT-CONSTANTS](spec/ACT-CONSTANTS.md) | Well-known `std:` constants registry (normative) |
 | [ACT-MCP](spec/ACT-MCP.md) | MCP adapter mapping guide (informative) |
 | [ACT-AUTH](spec/ACT-AUTH.md) | Authentication (normative) |
 | [ACT-AGENTSKILLS](spec/ACT-AGENTSKILLS.md) | Agent Skills embedding (normative) |
 | [ACT-SYNC](spec/ACT-SYNC.md) | Sync compatibility interfaces for constrained languages (informative) |
-| [OpenAPI](spec/ACT-HTTP-openapi.yaml) | OpenAPI 3.2 definition for ACT-HTTP |
+| [OpenAPI](spec/ACT-HTTP-openapi.yaml) | OpenAPI 3.2 definition for ACT-HTTP (**withdrawn**) |
 
 WIT interfaces: [`wit/`](wit/)
 

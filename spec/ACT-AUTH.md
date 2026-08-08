@@ -178,6 +178,10 @@ Authenticating the client to the ACT host (rather than the component to its upst
 
 ### 2.1 ACT-HTTP
 
+> **Withdrawn.** This section describes the ACT-HTTP binding, withdrawn on
+> 2026-08-13 and no longer implemented by the reference host. Retained as
+> design record; see [ACT-HTTP.md](ACT-HTTP.md). Not normative.
+
 The host uses standard HTTP authentication mechanisms:
 
 - `Authorization: Bearer <token>` for bearer auth.

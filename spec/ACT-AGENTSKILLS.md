@@ -137,7 +137,7 @@ wasm-tools metadata show --section act:skill component.wasm | tar xf - -C ./my-s
 When a host loads a component with an `act:skill` section:
 
 1. The host MAY extract the skill and register it with the agent platform (e.g., write to `~/.agents/skills/`).
-2. The host MAY serve the skill content via the MCP `resources/read` endpoint or ACT-HTTP.
+2. The host MAY serve the skill content via the MCP `resources/read` endpoint.
 3. The host MUST NOT execute scripts from the skill directory without explicit user consent.
 
 ### 4.4 Registry Behavior
