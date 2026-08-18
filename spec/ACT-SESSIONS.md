@@ -112,6 +112,8 @@ If a tool-call references a session-id the component does not recognize (closed,
 
 If the host calls `close-session` with an unknown session-id, the component MUST behave as a no-op.
 
+Closing has one host-side consequence beyond the component: the host MUST stop serving credentials for that session id, so a later `get-secret` naming it is refused with `invalid-session` (`ACT-AUTH.md` §1.1.4). This bounds a credential's lifetime to the session it was fetched under — as far as the host can bound it at all (`ACT-AUTH.md` §1.1.10).
+
 ### 2.5 Component Deinit
 
 Component deinitialization is when the host drops the WASM instance — for example on graceful shutdown, idle eviction, or after an unrecoverable error. Before this point:
@@ -150,7 +152,10 @@ The agent MUST treat session-ids as opaque strings.
 
 ## 4. Authentication
 
-Session args is the canonical place for component-to-external credentials in ACT. Well-known credential keys (`std:bearer-token`, `std:api-key`, `std:username`, `std:password`) and OAuth flow advertisement (`x-act-authorization-server`, `x-act-scopes` JSON Schema annotations) are normatively specified in `ACT-AUTH.md`.
+ACT has two mechanisms for component-to-external credentials, both normative and both specified in `ACT-AUTH.md` §1:
+
+- **The host credential store**, `act:credentials@0.1.0` — preferred for new components, and the only mechanism under which a credential does not pass through the agent's context. See `ACT-AUTH.md` §1.1; note in particular that a credential **cannot** be fetched inside `open-session` (§1.1.4 there), which constrains how a session validates its connection.
+- **Session args**, described here. Well-known credential keys (`std:bearer-token`, `std:api-key`, `std:username`, `std:password`) and OAuth flow advertisement (`x-act-authorization-server`, `x-act-scopes` JSON Schema annotations) are normatively specified in `ACT-AUTH.md`.
 
 ---
 

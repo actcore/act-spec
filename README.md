@@ -23,7 +23,7 @@ A single `.wasm` component serves AI agents (via [MCP](spec/ACT-MCP.md), over st
 | [ACT-HTTP](spec/ACT-HTTP.md) | HTTP API binding (**withdrawn** 2026-08-13 — MCP is the transport) |
 | [ACT-CONSTANTS](spec/ACT-CONSTANTS.md) | Well-known `std:` constants registry (normative) |
 | [ACT-MCP](spec/ACT-MCP.md) | MCP adapter mapping guide (informative) |
-| [ACT-AUTH](spec/ACT-AUTH.md) | Authentication (normative) |
+| [ACT-AUTH](spec/ACT-AUTH.md) | Authentication: the host credential store (`act:credentials@0.1.0`) and session args (normative) |
 | [ACT-AGENTSKILLS](spec/ACT-AGENTSKILLS.md) | Agent Skills embedding (normative) |
 | [ACT-SYNC](spec/ACT-SYNC.md) | Sync compatibility interfaces for constrained languages (informative) |
 | [OpenAPI](spec/ACT-HTTP-openapi.yaml) | OpenAPI 3.2 definition for ACT-HTTP (**withdrawn**) |

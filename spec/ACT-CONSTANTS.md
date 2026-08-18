@@ -2,7 +2,7 @@
 title: ACT Well-Known Constants
 version: 0.4.0
 status: normative
-requires: [act:core@0.4.0, act:tools@0.2.0]
+requires: [act:core@0.4.0, act:tools@0.2.0, act:credentials@0.1.0]
 ---
 
 # ACT Well-Known Constants
@@ -135,7 +135,52 @@ See `ACT-AUTH.md` for full authentication semantics.
 
 ---
 
-## 8. Error Kinds
+## 8. Credential Store
+
+Used by `act:credentials/store` (package `act:credentials@0.1.0`). The host holds
+the material; a component asks for it by key and never enumerates outside its own
+profile.
+
+**Do not confuse this section with Section 7.** Section 7 registers *session-argument
+keys* under the credentials-in-args model. This section registers *secret kinds* and
+the *field names inside a secret*. `std:username` and `std:password` are spelled
+identically in both and are not the same thing: in Section 7 they are argument keys
+the agent can see, here they are fields of stored material the agent never sees.
+
+### 8.1 Secret Kinds
+
+Values of `secret-kind`. The kind fixes which fields appear in `secret.fields`.
+
+| Kind | Fields | Description |
+|------|--------|-------------|
+| `std:opaque` | `std:value` | A single opaque value — bearer token or API key. |
+| `std:basic` | `std:username`, `std:password` | Username and password. |
+| `std:oauth2` | `std:access-token`, `std:expires-at`, `std:scopes` | OAuth 2 access token. |
+
+Third-party kinds use their own namespace (e.g. `acme:tenant-key`) and MAY define
+their own fields. A host MUST NOT let a third-party definition replace a `std:` kind.
+
+### 8.2 Secret Fields
+
+Keys of `secret-fields`. **Secret** marks a field whose value is credential material;
+**Required** marks one that MUST be present for the kind to be well-formed.
+
+| Field | Value type | Secret | Required | Kind |
+|-------|-----------|--------|----------|------|
+| `std:value` | string | yes | yes | `std:opaque` |
+| `std:username` | string | yes | yes | `std:basic` |
+| `std:password` | string | yes | yes | `std:basic` |
+| `std:access-token` | string | yes | yes | `std:oauth2` |
+| `std:expires-at` | u64 (Unix seconds) | no | no | `std:oauth2` |
+| `std:scopes` | list\<string\> | no | no | `std:oauth2` |
+
+Both halves of `std:basic` are secret, `std:username` included: which account
+authenticates is not the agent's choice to make, so the username is withheld on the
+same terms as the password.
+
+---
+
+## 9. Error Kinds
 
 Used in `error.kind`.
 
@@ -147,10 +192,11 @@ Used in `error.kind`.
 | `std:capability-denied` | The component attempted to use a capability that was not granted. |
 | `std:session-not-found` | A capability call referenced a session-id the component does not recognize. See `ACT-SESSIONS.md` §2.3. |
 | `std:internal` | An unrecoverable error within the component. |
+| `std:credential-required` | A credential the component needs is absent from its profile. The host surfaces it to the agent together with a command the user can run to provision the credential; neither the error nor the command describes the material. See Section 8. |
 
 ---
 
-## 9. Capability Identifiers
+## 10. Capability Identifiers
 
 Used as keys in the `std:capabilities` map. Values are objects with capability-specific parameters.
 
@@ -159,12 +205,13 @@ Used as keys in the `std:capabilities` map. Values are objects with capability-s
 | `wasi:http` | _(none yet)_ | Outbound HTTP requests. |
 | `wasi:filesystem` | `mount-root` (string) | Filesystem access. `mount-root` is the internal WASM path prefix for all host mounts (default: `/`). |
 | `wasi:sockets` | _(none yet)_ | Outbound TCP and UDP connections. |
+| `act:credentials` | _(none)_ | Access to the host credential store (Section 8). Declared as a bare table; an undeclared class is always denied and no grant can widen it. |
 
 Third-party capabilities use their own namespace (e.g. `acme:gpu/compute`). Hosts that do not recognize a capability identifier SHOULD treat it according to their enforcement mode.
 
 ---
 
-## 10. WASM Custom Sections
+## 11. WASM Custom Sections
 
 | Section name | Format | Description |
 |-------------|--------|-------------|
@@ -173,7 +220,7 @@ Third-party capabilities use their own namespace (e.g. `acme:gpu/compute`). Host
 
 ---
 
-## 11. MIME Types
+## 12. MIME Types
 
 Used in `content-part.mime-type` and content negotiation.
 
