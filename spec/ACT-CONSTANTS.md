@@ -142,41 +142,71 @@ the material; a component asks for it by key and never enumerates outside its ow
 profile.
 
 **Do not confuse this section with Section 7.** Section 7 registers *session-argument
-keys* under the credentials-in-args model. This section registers *secret kinds* and
-the *field names inside a secret*. `std:username` and `std:password` are spelled
-identically in both and are not the same thing: in Section 7 they are argument keys
-the agent can see, here they are fields of stored material the agent never sees.
+keys* under the credentials-in-args model. This section registers *field types* and
+*field names* inside a stored credential. `std:username` and `std:password` are
+spelled identically in both and are not the same thing: in Section 7 they are argument
+keys the agent can see, here they are fields of stored material the agent never sees.
 
-### 8.1 Secret Kinds
+### 8.1 Field Types
 
-Values of `secret-kind`. The kind fixes which fields appear in `secret.fields`.
+Values of a field's `type`. The type binds two things: how the value is **encoded**,
+and how `act login` **acquires** it. It is a property of the field, not of the
+credential — an OAuth credential may carry a tenant id beside its token, and a
+refresh replaces only the token's field.
 
-| Kind | Fields | Description |
-|------|--------|-------------|
-| `std:opaque` | `std:value` | A single opaque value — bearer token or API key. |
-| `std:basic` | `std:username`, `std:password` | Username and password. |
-| `std:oauth2` | `std:access-token`, `std:expires-at`, `std:scopes` | OAuth 2 access token. |
+| Type | Encoding | Stored as | Acquired by |
+|------|----------|-----------|-------------|
+| `std:string` | CBOR text | a JSON string | prompting |
+| `std:oauth2` | CBOR map | a JSON object | the OAuth flow (`ACT-AUTH.md` §1.1) |
 
-Third-party kinds use their own namespace (e.g. `acme:tenant-key`) and MAY define
-their own fields. A host MUST NOT let a third-party definition replace a `std:` kind.
+A field of any other type MUST be rejected rather than coerced. A host that cannot
+acquire a declared type MUST say so by name rather than prompt for it as text:
+storing a string where an object is expected fails much later, somewhere else.
 
-### 8.2 Secret Fields
+Third-party types use their own namespace. A host MUST NOT let a third-party
+definition replace a `std:` one.
 
-Keys of `secret-fields`. **Secret** marks a field whose value is credential material;
-**Required** marks one that MUST be present for the kind to be well-formed.
+### 8.2 Field Names
 
-| Field | Value type | Secret | Required | Kind |
-|-------|-----------|--------|----------|------|
-| `std:value` | string | yes | yes | `std:opaque` |
-| `std:username` | string | yes | yes | `std:basic` |
-| `std:password` | string | yes | yes | `std:basic` |
-| `std:access-token` | string | yes | yes | `std:oauth2` |
-| `std:expires-at` | u64 (Unix seconds) | no | no | `std:oauth2` |
-| `std:scopes` | list\<string\> | no | no | `std:oauth2` |
+Registered names, their types, and whether the value is credential material.
+**Secret** marks a field whose value must never reach the agent or a log.
 
-Both halves of `std:basic` are secret, `std:username` included: which account
-authenticates is not the agent's choice to make, so the username is withheld on the
-same terms as the password.
+| Field | Type | Secret | Notes |
+|-------|------|--------|-------|
+| `std:value` | `std:string` | yes | A single value — bearer token, API key or password — where the credential has only one. |
+| `std:username` | `std:string` | yes | |
+| `std:password` | `std:string` | yes | |
+| `std:token` | `std:oauth2` | yes | The OAuth credential. Its members are in §8.3. |
+
+Both halves of a username/password credential are secret, `std:username` included:
+which account authenticates is not the agent's choice to make, so the username is
+withheld on the same terms as the password.
+
+A credential is a **set of fields**, not a fixed shape: two `std:string` fields named
+`std:username` and `std:password` are a password credential, and a `std:token` field
+beside an `acme:tenant` field is an OAuth credential with a tenant id. Meaning lives
+in the field names, which is why they are registered and why a component may not mint
+new ones in the `std:` namespace.
+
+### 8.3 Members of a `std:oauth2` value
+
+A `std:oauth2` field's value is a map. These are the members the flow writes; a
+consumer MUST treat a member of the wrong type as **absent** rather than coerce it,
+because coercion here would report scopes or an expiry the issuer never granted.
+
+| Member | Encoding | Secret | Required |
+|--------|----------|--------|----------|
+| `std:access-token` | CBOR text | yes | yes |
+| `std:expires-at` | CBOR unsigned integer (Unix seconds) | no | no |
+| `std:scopes` | CBOR array of text | no | no |
+
+The two non-required members degrade **silently** by design — a missing
+`std:expires-at` reads as "no known expiry" and a missing `std:scopes` as "no scopes
+recorded". That is tolerable for a value the flow wrote and intolerable for one it
+did not, so a host writing this map MUST preserve the encodings above exactly: an
+`std:expires-at` that arrives as a float, or `std:scopes` as a string, produces a
+token that appears never to expire or a credential that appears to grant nothing,
+with no error anywhere.
 
 ---
 
