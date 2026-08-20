@@ -173,7 +173,6 @@ Registered names, their types, and whether the value is credential material.
 
 | Field | Type | Secret | Notes |
 |-------|------|--------|-------|
-| `std:value` | `std:string` | yes | A single value — bearer token, API key or password — where the credential has only one. |
 | `std:username` | `std:string` | yes | |
 | `std:password` | `std:string` | yes | |
 | `std:token` | `std:oauth2` | yes | The OAuth credential. Its members are in §8.3. |
@@ -187,6 +186,14 @@ A credential is a **set of fields**, not a fixed shape: two `std:string` fields 
 beside an `acme:tenant` field is an OAuth credential with a tenant id. Meaning lives
 in the field names, which is why they are registered and why a component may not mint
 new ones in the `std:` namespace.
+
+**Only names that are genuinely shared are registered here.** A credential holding
+one string does not get a registered name for it: whoever stores it names it, in
+their own namespace (`act secret set --field acme:token`). An earlier draft
+registered `std:value` for that case, and it was scaffolding — a name that told a
+reader nothing, in a model whose whole premise is that names carry the meaning.
+Such a credential is stored under the kind `std:fields`, which says what it is: a
+plain set of named fields.
 
 ### 8.3 Members of a `std:oauth2` value
 
