@@ -116,14 +116,15 @@ learns *what* they are.
 
 #### 1.1.6 Kinds and fields
 
-Secret kinds and the field names each kind carries are registered in
-`ACT-CONSTANTS.md` §8.
+Field **types** and field **names** are registered in `ACT-CONSTANTS.md` §8. A
+credential is a set of named fields; each field's type binds its encoding and how
+it is acquired. Two types exist: `std:string` and `std:oauth2`.
 
 The `kind` in a request is a **provisioning hint, not a retrieval filter**: it
 tells the host what to ask a human for, and MUST NOT constrain what `get-secret`
-returns. A value stored as `std:opaque` is still served to a component expecting
-`std:oauth2` — it is the same string in the same header. The component inspects
-`secret.kind` and decides for itself.
+returns. A value provisioned under one shape is still served to a component
+expecting another — it is the same bytes either way. Meaning lives in the field
+names, and the component reads the ones it knows.
 
 The alternative — refusing a key whose stored kind differs — was rejected: it
 turns an operator's provisioning choice into a runtime failure the component
@@ -156,8 +157,14 @@ agent-facing error kind is `std:credential-required` (`ACT-CONSTANTS.md` §9).
 
 #### 1.1.8 Provisioning
 
-Acquisition happens **out of band, by explicit operator action, never inside a
-tool call**:
+**Provisioning is the operator's act, not the agent's.** A credential enters a
+profile because a human ran a command — which is what disposes of MCP's
+requirement that a server prove the user who finished a flow is the user who
+started it (§5 of the design): here the user typed it themselves.
+
+```
+act login       <component-ref> [--key K]   # runs the flow / prompts per field
+```
 
 ```
 act secret set  <component-ref> [--key K] [--kind KIND] [--description D]
@@ -170,6 +177,25 @@ The component reference is the profile namespace (§1.1.3).
 
 There is deliberately **no `act secret get`**. No command prints a stored value;
 the type `list` serialises has no field that could hold one.
+
+**This does not mean a credential is never obtained during a tool call.** Two
+things are easy to conflate here, and an earlier draft of this section conflated
+them:
+
+- **Retrieval** inside a tool call is not an exception, it is the only case there
+  is. `get-secret` requires a live session, and a session is live only after
+  `open-session` returns (§1.1.4) — so every credential a component reads, it
+  reads mid-call.
+- **Acquisition** inside a tool call is a *host* behaviour and is permitted where
+  the host can reach a human: URL-mode elicitation to a loopback page, awaiting
+  the page submission rather than the elicitation reply. Where it cannot — a
+  client without `elicitation.url`, or a headless run — the call fails with a
+  command the user can run out of band. The component's view is identical in
+  every branch: a secret, or `not-found`.
+
+What in-band acquisition costs is the anti-phishing property above: the
+initiator is then the component rather than a human who typed a command. What
+gates it is not settled — see the design's §5.7 and §14.
 
 #### 1.1.9 Store (informative)
 
@@ -488,7 +514,7 @@ The operator provisions once, out of band. Nothing here passes through the agent
 
 ```bash
 act secret set ghcr.io/example/github:0.1.0 \
-    --key api --kind std:opaque --description "GitHub PAT, repo scope" \
+    --key api --kind std:string --description "GitHub PAT, repo scope" \
     --fields-stdin
 ```
 
@@ -499,7 +525,7 @@ would name a session the host has not yet marked live (§1.1.4):
 // inside the tool call, not inside open-session
 let secret = store::get_secret(session_id, &SecretRequest {
     key: "api".into(),
-    kind: Some("std:opaque".into()),
+    kind: Some("std:string".into()),
     resource: Some("api.github.com".into()),
     scopes: vec![],
     hint: Some("list the caller's repositories".into()),
@@ -509,7 +535,7 @@ let secret = store::get_secret(session_id, &SecretRequest {
 What the agent sees is the whole difference. It can enumerate:
 
 ```
-list_secrets() → [ { key: "api", kind: "std:opaque",
+list_secrets() → [ { key: "api", kind: "std:string",
                      description: "GitHub PAT, repo scope" } ]
 ```
 
