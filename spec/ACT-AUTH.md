@@ -108,27 +108,35 @@ records that matter.
 
 #### 1.1.5 What the agent may see
 
-Names, kinds, descriptions, and expiry. **Never values.** This holds identically
-on every agent-facing surface.
+Names, descriptions, and expiry. **Never values.** This holds identically on every
+agent-facing surface.
 
 The agent learns *which* credentials exist, so that it can name one; it never
 learns *what* they are.
 
-#### 1.1.6 Kinds and fields
+#### 1.1.6 Fields
 
 Field **types** and field **names** are registered in `ACT-CONSTANTS.md` §8. A
 credential is a set of named fields; each field's type binds its encoding and how
 it is acquired. Two types exist: `std:string` and `std:oauth2`.
 
-The `kind` in a request is a **provisioning hint, not a retrieval filter**: it
-tells the host what to ask a human for, and MUST NOT constrain what `get-secret`
-returns. A value provisioned under one shape is still served to a component
-expecting another — it is the same bytes either way. Meaning lives in the field
-names, and the component reads the ones it knows.
+There are no credential **shapes**. Meaning lives in the field names, which is why
+they are registered: `std:username` beside `std:password` is a password credential,
+and a `std:oauth2`-typed field beside a vendor's own string is an OAuth credential
+with a tenant id. A component MUST read the fields it knows by name and fail cleanly
+otherwise; it MUST NOT infer semantics from which fields happen to be present, or
+from how many.
 
-The alternative — refusing a key whose stored kind differs — was rejected: it
-turns an operator's provisioning choice into a runtime failure the component
-cannot explain and the operator cannot see.
+Consequently **retrieval MUST NOT be filtered by shape.** A value provisioned as one
+type is still served to a component expecting another — it is the same bytes either
+way. The alternative, refusing a key whose stored form differs, was rejected: it
+turns an operator's provisioning choice into a runtime failure the component cannot
+explain and the operator cannot see.
+
+The `secret-kind` member carried by `act:credentials@0.1.0` predates this model and
+names nothing under it. A host MUST populate it with `std:fields` for credentials it
+writes, MUST pass through whatever a store already holds, and a component MUST NOT
+branch on it.
 
 Field values cross as dCBOR — the same encoding tool arguments and metadata use.
 
@@ -167,7 +175,8 @@ act login       <component-ref> [--key K]   # runs the flow / prompts per field
 ```
 
 ```
-act secret set  <component-ref> [--key K] [--kind KIND] [--description D]
+act secret set  <component-ref> [--key K] --field NAME [--field NAME …]
+                                [--description D]
                                 [--fields-stdin | --from-command '<cmd>']
 act secret list [<component-ref>]
 act secret rm   <component-ref> --key K
@@ -497,8 +506,8 @@ Refresh tokens (if used) MUST remain on the host and MUST NOT be passed to compo
 
 ### 6.1 GitHub Client via the Credential Store
 
-The preferred shape for a new component: the value never enters an argument, a
-session, or the agent's context.
+The preferred arrangement for a new component: the value never enters an argument,
+a session, or the agent's context.
 
 `act.toml` declares the class as a bare table, alongside the network reach the
 component actually needs:
@@ -514,7 +523,7 @@ The operator provisions once, out of band. Nothing here passes through the agent
 
 ```bash
 act secret set ghcr.io/example/github:0.1.0 \
-    --key api --kind std:string --description "GitHub PAT, repo scope" \
+    --key api --field example:pat --description "GitHub PAT, repo scope" \
     --fields-stdin
 ```
 
@@ -525,17 +534,18 @@ would name a session the host has not yet marked live (§1.1.4):
 // inside the tool call, not inside open-session
 let secret = store::get_secret(session_id, &SecretRequest {
     key: "api".into(),
-    kind: Some("std:string".into()),
+    kind: None,                       // names nothing under this model (§1.1.6)
     resource: Some("api.github.com".into()),
     scopes: vec![],
     hint: Some("list the caller's repositories".into()),
 })?;
+let pat = secret.field("example:pat").and_then(|v| v.as_str())?;
 ```
 
 What the agent sees is the whole difference. It can enumerate:
 
 ```
-list_secrets() → [ { key: "api", kind: "std:string",
+list_secrets() → [ { key: "api", kind: "std:fields",
                      description: "GitHub PAT, repo scope" } ]
 ```
 

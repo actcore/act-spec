@@ -142,8 +142,9 @@ the material; a component asks for it by key and never enumerates outside its ow
 profile.
 
 **Do not confuse this section with Section 7.** Section 7 registers *session-argument
-keys* under the credentials-in-args model. This section registers *field types* and
-*field names* inside a stored credential. `std:username` and `std:password` are
+keys* under the credentials-in-args model. This section registers *field types*,
+*field names* inside a stored credential, and the one value the vestigial
+`secret-kind` member may carry. `std:username` and `std:password` are
 spelled identically in both and are not the same thing: in Section 7 they are argument
 keys the agent can see, here they are fields of stored material the agent never sees.
 
@@ -192,8 +193,19 @@ one string does not get a registered name for it: whoever stores it names it, in
 their own namespace (`act secret set --field acme:token`). An earlier draft
 registered `std:value` for that case, and it was scaffolding — a name that told a
 reader nothing, in a model whose whole premise is that names carry the meaning.
-Such a credential is stored under the kind `std:fields`, which says what it is: a
-plain set of named fields.
+
+### 8.2.1 `std:fields`, the only credential kind
+
+`act:credentials@0.1.0` gives `secret` and `secret-info` a required `secret-kind`
+member. It was specified when the registry held whole credential shapes; under the
+model above it names nothing, and the package is published, so it cannot be removed
+before `act:credentials@0.2.0`.
+
+One value is registered for it: **`std:fields`** — a plain set of named fields,
+which is what every credential is. A host MUST write `std:fields` for credentials it
+stores, MUST pass through unchanged whatever a store it did not write already holds,
+and MUST NOT derive it from the credential's key or from which fields are present. A
+component MUST NOT branch on it: what a credential means is in its field names.
 
 ### 8.3 Members of a `std:oauth2` value
 
