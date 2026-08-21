@@ -142,9 +142,11 @@ the material; a component asks for it by key and never enumerates outside its ow
 profile.
 
 **Do not confuse this section with Section 7.** Section 7 registers *session-argument
-keys* under the credentials-in-args model. This section registers *field types*,
-*field names* inside a stored credential, and the one value the vestigial
-`secret-kind` member may carry. `std:username` and `std:password` are
+keys* under the credentials-in-args model. This section registers *field types*
+inside a stored credential, the members of an OAuth value, and the one value the
+vestigial `secret-kind` member may carry. It registers no field **names** — §8.2
+says why — so `std:username` and `std:password` appear in Section 7 only, as
+session-argument keys, and mean nothing inside a stored credential. `std:username` and `std:password` are
 spelled identically in both and are not the same thing: in Section 7 they are argument
 keys the agent can see, here they are fields of stored material the agent never sees.
 
@@ -169,30 +171,39 @@ definition replace a `std:` one.
 
 ### 8.2 Field Names
 
-Registered names, their types, and whether the value is credential material.
-**Secret** marks a field whose value must never reach the agent or a log.
+**No field name is registered, and none may be.** A credential is a set of named
+fields; the names are chosen by whoever stores it, in their own namespace. This
+section registers the rule and nothing else.
 
-| Field | Type | Secret | Notes |
-|-------|------|--------|-------|
-| `std:username` | `std:string` | yes | |
-| `std:password` | `std:string` | yes | |
-| `std:token` | `std:oauth2` | yes | The OAuth credential. Its members are in §8.3. |
+A field name MUST NOT be in the `std:` namespace. Hosts MUST refuse one wherever it
+can be minted: in a component's `[[std.credentials]]` declaration (at pack time), in
+an operator's own field definitions, and in a `--field` argument. The namespace is
+this specification's, and a `std:`-prefixed name reads as though ACT gave it meaning.
 
-Both halves of a username/password credential are secret, `std:username` included:
-which account authenticates is not the agent's choice to make, so the username is
-withheld on the same terms as the password.
+Names carry the meaning of a credential — `acme:username` beside `acme:password` is a
+password credential; a `std:oauth2`-typed field beside a plain string is an OAuth
+credential with a tenant id. A component MUST read the fields it knows by name and
+MUST NOT infer semantics from which fields are present or from how many.
 
-A credential is a **set of fields**, not a fixed shape: two `std:string` fields named
-`std:username` and `std:password` are a password credential, and a `std:token` field
-beside an `acme:tenant` field is an OAuth credential with a tenant id. Meaning lives
-in the field names, which is why they are registered and why a component may not mint
-new ones in the `std:` namespace.
+**Why nothing is registered.** An earlier version registered `std:username`,
+`std:password` and `std:token` as shared vocabulary, on the reasoning that two
+components wrapping the same kind of upstream should spell the credential the same
+way. That is a convention benefit, not a mechanical one: the party that reads a field
+is the party that asked for it — by declaring it, or by printing the exact
+`act secret set --field …` command its user copies — so the two never need a third
+party to agree through. And it cost more than it bought, because a component may not
+declare a `std:` name: components using the most standard credential shape were
+exactly the ones that could not declare their fields at all, and so lost the
+zero-argument `act login` that a declaration exists to provide.
 
-**Only names that are genuinely shared are registered here.** A credential holding
-one string does not get a registered name for it: whoever stores it names it, in
-their own namespace (`act secret set --field acme:token`). An earlier draft
-registered `std:value` for that case, and it was scaffolding — a name that told a
-reader nothing, in a model whose whole premise is that names carry the meaning.
+What is mechanical is the **type** (§8.1) — it decides encoding and acquisition, and
+both ends must agree — and the **members of an OAuth value** (§8.3), which a host
+writes and an SDK reads. Those are registered. Names are not.
+
+Consequently a name alone cannot say a field is an OAuth map rather than a string.
+A declaration states the type per field; where there is no declaration — a bridge,
+whose credential set is open by nature — the person storing it says so on the command
+line, which the reference host spells `--field NAME=TYPE`.
 
 ### 8.2.1 `std:fields`, the only credential kind
 

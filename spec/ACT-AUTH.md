@@ -28,22 +28,25 @@ A component MAY support both, preferring the store and falling back to arguments
 
 > **Revision pending.** Sections 1.4–1.6 (OAuth discovery, host-driven OAuth, token
 > refresh) still describe session args as the sole path. They are being rewritten
-> around the credential store; the parts of that revision that depend on `act login`
-> wait on its implementation. Where Section 1.1 and those sections disagree, Section
-> 1.1 is current.
+> around the credential store. `act login` has since landed for prompted fields, so
+> what the rewrite now waits on is the OAuth flow itself — discovery, PKCE and
+> refresh against a stored `std:oauth2` field. Where Section 1.1 and those sections
+> disagree, Section 1.1 is current.
 
 ### 1.1 The Host Credential Store
 
 This section specifies `act:credentials@0.1.0` — the host-provided store a
 component imports to obtain secrets **without those secrets passing through the
-agent**. Kinds and field names are registered in `ACT-CONSTANTS.md` §8;
+agent**. Field types and field names are registered in `ACT-CONSTANTS.md` §8;
 `ACT-SESSIONS.md` §2.4 and §4 cover the session interactions from the session
 side.
 
-> **Scope.** This describes what the reference host implements today. Where the
-> credentials design anticipates more — `act login`, OAuth acquisition, a
-> `[[std.credentials]]` manifest table, a credential selector in virtual
-> `open_session` — that work is unimplemented and deliberately unspecified.
+> **Scope.** This describes what the reference host implements today. `act login`,
+> the `[[std.credentials]]` manifest table and the OAuth **acquisition** flow are
+> implemented and specified here (§1.1.8, §1.1.2). Still unimplemented and
+> deliberately unspecified: **silent refresh** — a stored token is not renewed, so
+> an expired one is re-acquired by running `act login` again — in-band acquisition
+> during a tool call (§1.1.8), and a credential selector in virtual `open_session`.
 
 #### 1.1.1 Direction of call
 
@@ -98,6 +101,15 @@ its error mapping SHOULD carry the difference.
 credentials for that session id; subsequent requests MUST be refused with
 `invalid-session`.
 
+**A store consumer therefore exports `session-provider`.** Session ids exist only
+because `open-session` returned one, so a component that exports no session
+provider has no id that can ever be live and `get-secret` refuses every request it
+makes. This follows from the rule above rather than adding to it, and it is stated
+because it is otherwise discovered at runtime: a pure-function component told by
+§1.2 not to export `session-provider` cannot use the credential store, and must
+take its credential another way or grow a session. `list-secrets` is the exception
+in both directions — it takes an optional session and acquires nothing.
+
 **Listing outside a session.** `list-secrets` takes an **optional** session.
 When present it MUST name a live session — it is checked, not used to narrow the
 result. **There is no per-session compartment:** the listing covers the
@@ -120,12 +132,17 @@ Field **types** and field **names** are registered in `ACT-CONSTANTS.md` §8. A
 credential is a set of named fields; each field's type binds its encoding and how
 it is acquired. Two types exist: `std:string` and `std:oauth2`.
 
-There are no credential **shapes**. Meaning lives in the field names, which is why
-they are registered: `std:username` beside `std:password` is a password credential,
-and a `std:oauth2`-typed field beside a vendor's own string is an OAuth credential
-with a tenant id. A component MUST read the fields it knows by name and fail cleanly
-otherwise; it MUST NOT infer semantics from which fields happen to be present, or
-from how many.
+There are no credential **shapes** and no registered field **names** (§8.2). Meaning
+lives in the names, and they are chosen by whoever stores the credential: `acme:username`
+beside `acme:password` is a password credential, and a `std:oauth2`-typed field beside a
+vendor's own string is an OAuth credential with a tenant id. A component MUST read the
+fields it knows by name and fail cleanly otherwise; it MUST NOT infer semantics from
+which fields happen to be present, or from how many.
+
+A field name MUST NOT be in the `std:` namespace, and a host MUST refuse one wherever it
+can be minted — a declaration, an operator's definitions, a provisioning argument. Note
+that `std:username` and `std:password` in §1.3 are *session-argument* keys and are
+unrelated: inside a stored credential those names are refused like any other `std:` one.
 
 Consequently **retrieval MUST NOT be filtered by shape.** A value provisioned as one
 type is still served to a component expecting another — it is the same bytes either
@@ -171,11 +188,51 @@ requirement that a server prove the user who finished a flow is the user who
 started it (§5 of the design): here the user typed it themselves.
 
 ```
-act login       <component-ref> [--key K]   # runs the flow / prompts per field
+act login       <component-ref> [--key K] [--force] [--field NAME …]
+                                            # prompts per declared field
 ```
 
+`act login` provisions from the component's own declaration (§1.1.2), so the
+operator need not know what it wants. A component that declares no fields — a
+bridge, whose credential set is open by nature — takes `--field NAME` instead.
+An existing credential is never replaced without `--force`.
+
+`=TYPE` states what a name cannot (§1.1.6): field names carry no type, and
+`std:string` is assumed, so a value that is an OAuth map rather than a string is
+named `--field acme:token=std:oauth2`. A declaration states the type per field and
+its user never writes this.
+
+A declared `std:oauth2` field is **acquired by the flow**, never prompted for.
+The host derives every address it contacts from the field's `resource`
+identifier — RFC 9728 for the resource, then RFC 8414 or OpenID Connect for the
+authorization server — registers this installation with RFC 7591 dynamic client
+registration (one registration per issuer, never shared), and runs the
+authorization-code flow with PKCE S256 and RFC 8707 `resource`. The callback
+arrives on a loopback listener bound to `127.0.0.1` on an ephemeral port at a
+fixed `/callback` path, which validates `Host` and refuses anything else.
+
+Two checks run **before the code is transmitted to any token endpoint**: `state`
+must match the authorization request, and `iss` must satisfy RFC 9207 — present
+and matching where the server advertises support, and never contradicting where
+it does not. A host MUST apply both in that position; applying them after the
+exchange defends nothing, because the code has already been presented.
+
+An access token is stored in the field, with `std:expires-at` and `std:scopes`
+per `ACT-CONSTANTS.md` §8.3. **A refresh token MUST NOT be stored in the field**
+— it belongs in the record's host-only compartment, so a component receives the
+means to authenticate and never the means to mint a new credential.
+
+**Silent refresh is not implemented.** An expired token is re-acquired by
+running `act login --force` rather than renewed in place; §1.6 describes the
+intended behaviour and is not what the reference host does today.
+
+A field whose declaration names no `resource` cannot be acquired: there is
+nothing to derive from, and the host refuses before opening a browser. Such a
+credential is provisioned with `act secret set --field NAME=std:oauth2
+--fields-stdin` from a token obtained by hand.
+
 ```
-act secret set  <component-ref> [--key K] --field NAME [--field NAME …]
+act secret set  <component-ref> [--key K] --field NAME[=TYPE] [--field …]
                                 [--description D]
                                 [--fields-stdin | --from-command '<cmd>']
 act secret list [<component-ref>]
@@ -411,7 +468,11 @@ The host validates client credentials before invoking any component. Failure res
 - `401 Unauthorized` with `WWW-Authenticate` header indicating accepted schemes.
 - `403 Forbidden` if authenticated but not authorized.
 
-### 2.2 ACT-HTTP with OAuth 2.1 (MCP-Compatible)
+### 2.2 HTTP Transports with OAuth 2.1
+
+Retitled: this applied to ACT-HTTP (§2.1, withdrawn) and applies unchanged to MCP
+over Streamable HTTP, which is the reference host's only HTTP transport
+(`act run --mcp --http`).
 
 Hosts that participate in OAuth 2.1 ecosystems (MCP HTTP transport spec, broadly) SHOULD:
 
@@ -455,10 +516,10 @@ The following table summarizes how authentication flows across transport boundar
 
 | Transport | Client-to-host | Component-to-external |
 |---|---|---|
-| ACT-HTTP | `Authorization` / custom headers (Section 2.1, 2.2) | Agent supplies credentials in `POST /sessions` body (`open-session.args`); host MAY inject from operator config or via host-driven OAuth (Section 1.5) |
-| MCP HTTP (streamable) | `Authorization: Bearer` per MCP 2025-06-18 | Same as ACT-HTTP |
-| MCP stdio | Process boundary (Section 2.3) | Host config / env / agent-supplied args |
-| CLI | OS user (process boundary) | `act session open --args '{"std:bearer-token":"..."}'` or profile in `~/.config/act/config.toml` |
+| MCP HTTP (streamable) | `Authorization: Bearer` per MCP 2025-06-18 | Agent supplies credentials in the virtual `open_session` call (`open-session.args`); host MAY inject from operator config or via host-driven OAuth (Section 1.5) |
+| MCP stdio | Process boundary (Section 2.3) | Host config / agent-supplied args |
+| CLI | OS user (process boundary) | `act run`/`act call --session-args '{"std:bearer-token":"…"}'`, or a profile in `~/.config/act/config.toml` |
+| ~~ACT-HTTP~~ | *withdrawn 2026-08-13 (Section 2.1)* | *was: `POST /sessions` body* |
 
 The table describes the **session-args** mechanism, where the path component-side is the same for every transport: credentials enter `open-session.args` and live for the lifetime of the session.
 
@@ -489,6 +550,8 @@ Hosts that persist credentials (cached OAuth tokens, profile entries) SHOULD enc
 ### 5.4 Component Isolation
 
 The WASM sandbox prevents components from accessing each other's session args. The host MUST NOT pass one component's session args to another component. The host MUST validate args against the schema returned by `get-open-session-args-schema` before invoking `open-session`.
+
+**The reference host does not meet that second MUST**, and this says so rather than implying otherwise — the same treatment §5.3 gives encryption at rest. `act-cli` fetches the schema and publishes it (it is the input schema of the virtual `open_session` tool an MCP client sees) but never validates against it; it carries no JSON Schema validator at all. Validation is done guest-side by the SDKs instead. That is a deliberate architectural choice, not an oversight, but it is not what this section, `ACT-SESSIONS.md` §2.1 and §7, or `ACT-SPEC.md` §6.4 currently require — **the conformance model and the implementation disagree, and one of them has to move.** Until it does, treat args reaching a component as unvalidated by the host: a component MUST validate its own, which the SDKs do.
 
 The credential store has the same isolation as a **structural** property rather than a rule the host must remember to apply: a component addresses keys only within its own profile (Section 1.1.3), and there is no argument it can pass — no key, no session id, no kind — that names another component's compartment. Policy can be misconfigured; a namespace cannot.
 
