@@ -123,7 +123,7 @@ Wildcards remain valid in operator **grants** and in host policy configuration, 
 A host that receives `request` MUST decide as follows, in this order:
 
 1. **Undeclared → `deny`.** If `class` is absent from the component's declared capabilities, or is empty, return `deny`. The operator MUST NOT be consulted, and this step MUST run before any other.
-2. **Grant deny → `deny`.** If a `deny` constraint in the effective grant matches the request, return `deny`.
+2. **Grant deny → `deny`.** If a `deny` constraint in the effective grant matches the request, return `deny`. Matching on this step is deliberately asymmetric with steps 3 and 4: a dimension the operation does not carry counts as **matching** a `deny` constraint, where on the allow and declared sides it counts as not matching. See §8.6 — a prohibition the component can slip by omitting a field is not a prohibition.
 3. **Declared ceiling → `deny` when unmatched.** If the declaration carries constraints and none matches the request, return `deny`. This step runs **before** the grant mode is considered, so no mode can authorize an action the artifact did not declare it could take.
 4. **Grant mode.**
    - `deny` → `deny`.
@@ -140,7 +140,7 @@ The effective ceiling is therefore `declaration ∩ grant`, exactly as for the p
 Under `ask`, the host consults a human over whatever channel its deployment provides — a terminal prompt, an MCP elicitation to the client, a GUI dialog.
 
 - The host MUST attribute the question to the component by the reference the operator themselves supplied, never by a name the component chose.
-- The host MUST sanitize `summary` before display: strip control and bidirectional-override characters, truncate, and render it as the component's own words rather than as the host's question. An unsanitized `summary` or `key` can paint a second, forged prompt line and collect approval for a question the host never asked.
+- The host MUST neutralize **both `summary` and `key`** before display: strip control and bidirectional-override characters, and bound their length. `summary` is additionally rendered as the component's own words rather than as the host's question. Either field, left raw, can paint a second forged prompt line and collect approval for a question the host never asked — and either, left unbounded, can flood a terminal or an elicitation message until the real question scrolls away. A host MAY neutralize them inline or at its rendering boundary, but it MUST NOT display either field without doing so.
 - The host SHOULD remember a decision for the pair `(class, key)` for at least the component run, so that a component cannot re-ask the same question to wear a human down.
 - Where no channel exists — CI, a headless run, a client without elicitation — `ask` MUST degrade to `deny`. Silence is never consent.
 
@@ -177,7 +177,7 @@ A host that implements `act:consent/consent-authority@0.1.0`:
 - MUST implement the decision procedure of Section 4 in that order.
 - MUST refuse an undeclared class without consulting a human.
 - MUST resolve a ceiling for every declared semantic class at instantiation, so that an operator can see each class and its effective mode before the component is invoked.
-- MUST record every request and its outcome in the audit trail, including the class, the key, the decision, and the mode that produced it.
+- MUST record every request and its outcome in the audit trail, including the class, the key, the decision, and the mode that produced it. This binds what an operator can **read at a host's default verbosity**, not only what its structured records carry. A semantic decision is not a high-frequency event like a file read: hosts MUST NOT summarize them into a count that drops the key, because which subject was authorized is the substance of the decision.
 - MUST NOT record `summary` or `args` in a form that could be mistaken for host-authored text.
 - MUST degrade `ask` to `deny` where it has no channel to a human.
 
@@ -195,6 +195,14 @@ Because `key` is component-chosen and matched by glob, an unanchored operator pa
 
 A class SHOULD therefore fix the shape of its key — an origin rather than a full URL, a bare identifier rather than a path — and operator patterns over component-chosen keys SHOULD be anchored rather than leading with `*`. Under `allowlist` no human inspects the key at all, so the guarantee in Section 8.1 does not by itself bound this case.
 
+A second shape of the same problem: a key may match an operator's pattern while
+naming a different subject than the action touches, because nothing checks the
+key against what the component actually does. A key of
+`test_scratch/../production` matches an anchored `test_*` and reads, to a human
+skimming a prompt, as a scratch database. The host cannot detect this — it never
+sees the action — so the defence is again the class fixing its key's shape:
+reject or normalize a key that is not the plain identifier the class promised.
+
 ### 8.3 Consent Is Not a Sandbox
 
 Consent binds a cooperating component. It provides no protection against an artifact that never calls `request`. Operators MUST NOT relax a component's physical capability grants on the grounds that it declares semantic classes; the ceiling and consent bound different adversaries (Section 1).
@@ -206,6 +214,45 @@ Every refusal returns `deny`. A host MUST NOT distinguish "undeclared", "denied 
 ### 8.5 Prompt Fatigue
 
 A component that asks repeatedly can exhaust a human into approving. The remembered `(class, key)` decision of Section 5 bounds this for repeats; hosts SHOULD additionally bound the rate of distinct prompts, and components SHOULD choose keys at the granularity a human would want to decide at rather than one per operation.
+
+Note what "for at least the component run" means for a host serving several agent
+sessions from one component instance: an approval given in one session authorizes
+the identical `(class, key)` in another, because the component run is the wider
+scope. That is this specification's floor, not its ceiling. A multi-tenant host
+SHOULD narrow the remembered scope to the session that gave the approval, and
+MUST NOT treat the floor as sufficient merely because it is conformant.
+
+### 8.6 Deny Constraints Bind a Party That Chooses the Evidence
+
+Constraint dimensions are not equally trustworthy, and the difference decides how
+matching must fail.
+
+Exactly one dimension is host-resolved: `key`, taken from `consent-request.key`,
+which the host reads, shows, records and matches as one value (§8.1). Every other
+dimension resolves from `args` — a CBOR map the component composes freely. It may
+omit any field, including one an operator wrote a constraint against.
+
+On the **allow** and **declared** sides that is harmless: a constraint that fails
+to match withholds a permission, so an omission costs the component the very
+permission it wanted. On the **deny** side the same rule inverts. A prohibition
+that fails to match does not fire, so a component escapes an operator's `deny`
+over an `args` dimension by not sending it.
+
+Hosts MUST therefore treat a dimension absent from the operation as **matching**
+a `deny` constraint. A `deny` over `table` refuses every request carrying no
+`table` — including the whole class, if the component never sends one. That is
+the intended consequence: it is loud, an operator sees it immediately, and it
+cannot be reached by a component withholding evidence. The alternative fails
+silently and in the component's favour.
+
+Operators writing a bound they intend to be tight SHOULD prefer `key`, which is
+the one dimension a component cannot omit.
+
+*(The `args` field's own documentation in `act:consent@0.1.0`'s WIT says only
+that nothing in `args` can widen what `key` and the declared ceiling permit —
+true, but silent on narrowing. That text is published and immutable; this section
+is where the qualification lives.)*
+
 
 ---
 
