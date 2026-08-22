@@ -271,7 +271,7 @@ Third-party capabilities use their own namespace (e.g. `acme:gpu/compute`). Host
 
 ### 10.1 Semantic Capability Classes
 
-The identifiers above name resources the host mediates by interception. A **semantic** class names an *action* instead — one the host cannot see, because it travels to its destination over a channel the operator already permitted. `db:drop` and `browser:navigate` are semantic; the component surfaces them through `act:consent/consent` (see `ACT-CONSENT.md`).
+The identifiers above name resources the host mediates by interception. A **semantic** class names an *action* instead — one the host cannot see, because it travels to its destination over a channel the operator already permitted. `db:drop` and `browser:navigate` are semantic; the component surfaces them through `act:consent/consent-authority` (see `ACT-CONSENT.md`).
 
 Semantic classes are **component-defined**: they are declared in `std:capabilities` like any other class, but there is no registry of well-known ones, and none is reserved here. Two components in different domains may legitimately choose the same identifier, and neither is authoritative.
 

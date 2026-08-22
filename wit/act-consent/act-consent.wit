@@ -106,7 +106,7 @@ interface types {
 }
 
 /// Host-provided semantic authorization.
-interface consent {
+interface consent-authority {
   use types.{consent-request, decision};
   use act:core/types@0.4.0.{metadata};
 

@@ -58,7 +58,7 @@ interface types {
   }
 }
 
-interface consent {
+interface consent-authority {
   use types.{consent-request, decision};
   use act:core/types@0.4.0.{metadata};
 
@@ -74,7 +74,7 @@ A component that asks for semantic authorization imports the interface:
 
 ```wit
 world my-component {
-  import act:consent/consent@0.1.0;
+  import act:consent/consent-authority@0.1.0;
   export act:tools/tool-provider@0.2.0;
 }
 ```
@@ -162,7 +162,7 @@ A prompt raised during an in-flight tool call MUST be deliverable: the mechanism
 
 ### 7.1 Conformant Component
 
-A component that imports `act:consent/consent@0.1.0`:
+A component that imports `act:consent/consent-authority@0.1.0`:
 
 - MUST declare every class it will ever pass as `class` in its `act:component` capabilities.
 - MUST call `request` before performing the action, and MUST NOT perform it on `deny`.
@@ -172,7 +172,7 @@ A component that imports `act:consent/consent@0.1.0`:
 
 ### 7.2 Conformant Host
 
-A host that implements `act:consent/consent@0.1.0`:
+A host that implements `act:consent/consent-authority@0.1.0`:
 
 - MUST implement the decision procedure of Section 4 in that order.
 - MUST refuse an undeclared class without consulting a human.

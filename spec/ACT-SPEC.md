@@ -89,6 +89,43 @@ bridges to MCP/OpenAPI/HTTP services) additionally export
 resource (e.g. a clock readable on demand), exporting only
 `act:resources/resource-provider` and no tools at all.
 
+Host-provided packages run the other way round: the **host** implements the
+interface and the component **imports** it. They are opt-in in both
+directions — a component that never calls one need not import it, and a host
+refuses any class the component did not declare.
+
+| Package | Status | Purpose |
+|---------|--------|---------|
+| `act:credentials@0.1.0` | normative | `store` interface — the host credential store. See [ACT-AUTH](ACT-AUTH.md). |
+| `act:consent@0.1.0` | normative | `consent-authority` interface — authorization for semantic actions the host cannot intercept. See [ACT-CONSENT](ACT-CONSENT.md). |
+
+Compatibility-tier packages for languages without async support carry the
+`-sync` suffix. See [ACT-SYNC](ACT-SYNC.md).
+
+#### Interface Naming
+
+Interface names carry the direction of the call, so a reader can tell who
+implements what without opening the file. New packages SHOULD follow these
+rules.
+
+| Shape | Meaning | Examples |
+|---|---|---|
+| `<domain>-provider` | The **component exports** it; the host calls in. `<domain>` is the package's domain word in the singular. | `tool-provider`, `session-provider`, `event-provider`, `resource-provider` |
+| `<domain>-<role>` | The **host implements** it; the component calls out. The role word MUST NOT be `provider` — that suffix is reserved for the direction above, and using it here would read backwards. | `consent-authority` |
+| `types` | A function-free, async-free carrier of the package's data model, so SDK helpers and sync-shim adapters can `use` it without taking on async signatures. | `act:core/types`, `act:tools/types`, `act:sessions/types`, `act:credentials/types`, `act:consent/types` |
+| `<name>-sync` | The compatibility tier of an interface, for guest languages without async. | `tool-provider-sync`, `session-provider-sync` |
+
+Repeating the package's domain word in the interface name is intended, not
+an accident: `provider` or `authority` alone would not say what of. What the
+rules exclude is an interface named *exactly* after its package
+(`act:consent/consent`), which names the domain twice and the role not at
+all.
+
+`act:credentials/store` predates these rules and does not follow them — it
+names a concrete noun instead of the qualified form. It was published in
+`wit-v3` and is aligned in a future version of that package; it is not a
+model for new ones.
+
 ### 3.2 Component Info (Custom Section)
 
 Component-level metadata is stored in the WASM binary as a custom section named `act:component`, not as an exported function. This allows hosts, registries, and tooling to read component information without instantiating the component or executing any code.
