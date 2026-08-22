@@ -269,6 +269,30 @@ Used as keys in the `std:capabilities` map. Values are objects with capability-s
 
 Third-party capabilities use their own namespace (e.g. `acme:gpu/compute`). Hosts that do not recognize a capability identifier SHOULD treat it according to their enforcement mode.
 
+### 10.1 Semantic Capability Classes
+
+The identifiers above name resources the host mediates by interception. A **semantic** class names an *action* instead — one the host cannot see, because it travels to its destination over a channel the operator already permitted. `db:drop` and `browser:navigate` are semantic; the component surfaces them through `act:consent/consent` (see `ACT-CONSENT.md`).
+
+Semantic classes are **component-defined**: they are declared in `std:capabilities` like any other class, but there is no registry of well-known ones, and none is reserved here. Two components in different domains may legitimately choose the same identifier, and neither is authoritative.
+
+Three rules apply to them regardless of namespace:
+
+- A class absent from `std:capabilities` MUST be denied, and no grant may widen it (`ACT-CONSENT.md` §3.1).
+- A declaration MUST name a concrete class. A wildcard declaration such as `"db:*"` is not valid, because it would leave a reader unable to tell what the artifact can ask for (`ACT-CONSENT.md` §3.3).
+- A class SHOULD name something an operator would want to decide about, and SHOULD separate irreversible actions from routine ones — `db:drop` apart from `db:ddl` — so that the destructive case can be refused without refusing the rest.
+
+Declared as bare tables with a `description`, optionally narrowed by `allow` constraints:
+
+```toml
+[std.capabilities."db:drop"]
+description = "Destructive operations (DROP, TRUNCATE)."
+
+[[std.capabilities."db:drop".allow]]
+key = "test_*"
+```
+
+The dimension named `key` matches `consent-request.key`; every other dimension matches a field of `consent-request.args`. Because `key` is chosen by the component, patterns written against it SHOULD be anchored — see `ACT-CONSENT.md` §8.2.
+
 ---
 
 ## 11. WASM Custom Sections

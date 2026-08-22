@@ -20,6 +20,7 @@ A single `.wasm` component serves AI agents (via [MCP](spec/ACT-MCP.md), over st
 |----------|-------------|
 | [ACT-SPEC](spec/ACT-SPEC.md) | Core protocol specification (normative) |
 | [ACT-SESSIONS](spec/ACT-SESSIONS.md) | Stateful sessions (normative) |
+| [ACT-CONSENT](spec/ACT-CONSENT.md) | Semantic authorization (`act:consent@0.1.0`) — the classes a component asks about (normative) |
 | [ACT-HTTP](spec/ACT-HTTP.md) | HTTP API binding (**withdrawn** 2026-08-13 — MCP is the transport) |
 | [ACT-CONSTANTS](spec/ACT-CONSTANTS.md) | Well-known `std:` constants registry (normative) |
 | [ACT-MCP](spec/ACT-MCP.md) | MCP adapter mapping guide (informative) |
