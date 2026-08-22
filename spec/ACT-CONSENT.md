@@ -167,7 +167,16 @@ A component that imports `act:consent/consent-authority@0.1.0`:
 - MUST declare every class it will ever pass as `class` in its `act:component` capabilities.
 - MUST call `request` before performing the action, and MUST NOT perform it on `deny`.
 - MUST pass a `key` that identifies the subject the action affects, and SHOULD keep that key's shape stable within a class.
-- MUST pass through the `metadata` of the call it is serving, so the host can anchor the decision to a session.
+- MUST pass through the `metadata` of the call it is serving, unchanged.
+
+  The requirement is on the component, not on the host: it says the call's
+  context travels with the request, so that a host which anchors its audit
+  outside the calling span — rather than inheriting a session from it — has
+  what it needs. A host is **not** required to read it, and the reference host
+  deliberately does not: its audit event is already emitted inside the tool
+  call's span, which carries the session, and a decision that depended on
+  guest-supplied metadata could only ever be widened by it. Both behaviours are
+  conformant, and a host reading this MUST should not conclude otherwise.
 - SHOULD keep `summary` to one line describing the concrete action, not the class.
 
 ### 7.2 Conformant Host
@@ -300,7 +309,10 @@ let req = ConsentRequest {
 // `meta` is the metadata of the call being served, passed through unchanged.
 let decision = consent_authority::request(req, meta).await;
 
-if matches!(decision, Decision::Deny) {
+// Branch on the permitted case, not the refused one. A gate written the other
+// way round fails open if its condition is ever inverted, and the SDK helper
+// that turns this into a `?` takes the same polarity.
+if !matches!(decision, Decision::Allow) {
     return Err(tool_error("std:capability-denied", "dropping databases was not authorized"));
 }
 ```
