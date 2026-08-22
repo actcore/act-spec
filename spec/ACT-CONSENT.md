@@ -286,20 +286,29 @@ The socket grant lets the component reach exactly one database server and nothin
 **In the component**, before executing a statement it has classified as destructive:
 
 ```rust
-let decision = consent::request(
-    &ConsentRequest {
-        class: "db:drop".into(),
-        key: database.clone(),                       // "analytics"
-        summary: format!("Drop database \"{database}\""),
-        args: cbor!({ "statement_kind": "DROP DATABASE" }),
-    },
-    meta,
-).await;
+let req = ConsentRequest {
+    class: "db:drop".into(),
+    // A plain identifier, per §8.2 — not a path or a URL, so an operator's
+    // pattern over it means what it appears to mean.
+    key: database.clone(),                       // "analytics"
+    summary: format!("Drop database \"{database}\""),
+    // No dimension beyond `key` is worth declaring for this class. Where one
+    // is, it goes here as a CBOR map — and §8.6 explains why only `key` binds.
+    args: Vec::new(),
+};
 
-if decision == Decision::Deny {
+// `meta` is the metadata of the call being served, passed through unchanged.
+let decision = consent_authority::request(req, meta).await;
+
+if matches!(decision, Decision::Deny) {
     return Err(tool_error("std:capability-denied", "dropping databases was not authorized"));
 }
 ```
+
+The call takes the record **by value**, and the interface is
+`consent-authority` — this example was written before either was settled and
+showed `consent::request(&req, …)`, which does not compile against the
+generated bindings.
 
 **Operator control**, without touching the artifact:
 
