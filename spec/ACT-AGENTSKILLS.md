@@ -140,6 +140,35 @@ When a host loads a component with an `act:skill` section:
 2. The host MAY serve the skill content via the MCP `resources/read` endpoint.
 3. The host MUST NOT execute scripts from the skill directory without explicit user consent.
 
+#### 4.3.1 MCP Skills Extension (SEP-2640)
+
+An ACT host serving a component over MCP SHOULD surface its embedded skill
+through the MCP Skills extension (`io.modelcontextprotocol/skills`) instead
+of — or in addition to — extraction to disk. The reference implementation in
+`act run --mcp` serves:
+
+- **`skills/list`** — the single embedded skill; `frontmatter.name` and
+  `frontmatter.description` come from SKILL.md, remaining scalar frontmatter
+  fields ride along as extra frontmatter entries.
+- **`skills/get`** — the file manifest: every package file as a
+  `skill://<name>/<path>` URI with a `sha256:` digest and byte size.
+- **`resources/list`** — SKILL.md only (the manifest is discoverable via
+  `skills/get`).
+- **`resources/read`** — package files by `skill://` URI; text files are
+  served as text content, with `text/markdown` for `.md`.
+- **`resources/directory/read`** — direct children of a package directory
+  (declared via the extension's `directoryRead` setting).
+
+Hosts serving a skill-less component MUST NOT declare the extension; per
+SEP-2640 the client then treats `skills/*` and `resources/directory/read`
+as method-not-found. Because the package is baked into the component binary,
+skill results are immutable for the lifetime of the process and MAY carry
+public cache hints.
+
+The extraction path (§4.1) and the MCP surface are independent: extraction
+registers the skill with the local agent platform, the MCP surface exposes
+it to the connected MCP client. Both read the same passive section.
+
 ### 4.4 Registry Behavior
 
 Registries (OCI, warg, or custom) MAY extract and index the `act:skill` section to enable skill-aware search and discovery. The `SKILL.md` frontmatter (`name`, `description`) provides structured metadata for indexing.

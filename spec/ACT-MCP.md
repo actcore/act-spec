@@ -270,3 +270,6 @@ For non-synthesized tools of a session-provider component, the agent supplies `s
 
 The adapter extracts `_meta.std:session-id`, includes it in the WIT `metadata` of `call-tool`, and the component routes the call to the matching session.
 
+## 5. Skills Extension
+
+When the loaded component carries an embedded Agent Skills package (`act:skill` section, ACT-AGENTSKILLS), an adapter SHOULD serve it through the MCP Skills extension (`io.modelcontextprotocol/skills`, SEP-2640): `skills/list`, `skills/get`, package files under `skill://<name>/<path>` URIs via `resources/read`, and — when advertised — `resources/directory/read`. The extension is declared only for components that actually embed a skill; `resources/list` advertises SKILL.md alone. Full normative text: ACT-AGENTSKILLS §4.3.1.
